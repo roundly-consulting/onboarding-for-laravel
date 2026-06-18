@@ -10,20 +10,17 @@ use JsonSerializable;
 /**
  * @implements Arrayable<string, mixed>
  */
-final readonly class StepData implements Arrayable, JsonSerializable
+final readonly class SectionData implements Arrayable, JsonSerializable
 {
     /**
-     * @param  array<string, mixed>  $meta
+     * @param  list<StepData>  $steps
      */
     public function __construct(
         public string $key,
         public ?string $title,
-        public ?string $cta,
-        public ?string $action,
+        public float $percentage,
         public bool $isCompleted,
-        public bool $isOptional,
-        public array $meta = [],
-        public ?string $group = null,
+        public array $steps,
     ) {}
 
     /**
@@ -34,12 +31,12 @@ final readonly class StepData implements Arrayable, JsonSerializable
         return [
             'key' => $this->key,
             'title' => $this->title,
-            'cta' => $this->cta,
-            'action' => $this->action,
+            'percentage' => $this->percentage,
             'is_completed' => $this->isCompleted,
-            'is_optional' => $this->isOptional,
-            'meta' => $this->meta,
-            'group' => $this->group,
+            'steps' => array_map(
+                static fn (StepData $step): array => $step->toArray(),
+                $this->steps,
+            ),
         ];
     }
 
