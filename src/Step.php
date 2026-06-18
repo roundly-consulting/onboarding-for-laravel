@@ -6,6 +6,8 @@ namespace RoundlyConsulting\Onboarding;
 
 use Closure;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
+use RoundlyConsulting\Onboarding\DataTransferObjects\StepData;
 
 /** @phpstan-consistent-constructor */
 class Step
@@ -23,6 +25,9 @@ class Step
         public ?Closure $exclude = null,
         public array $meta = [],
         public ?Model $for = null,
+        public ?string $key = null,
+        public bool $optional = false,
+        public ?int $order = null,
     ) {}
 
     /**
@@ -38,32 +43,35 @@ class Step
         ?Closure $exclude = null,
         array $meta = [],
         ?Model $for = null,
+        ?string $key = null,
+        bool $optional = false,
+        ?int $order = null,
     ): static {
-        return new static($title, $cta, $action, $complete, $exclude, $meta, $for);
+        return new static($title, $cta, $action, $complete, $exclude, $meta, $for, $key, $optional, $order);
     }
 
-    public function for(?Model $model): self
+    public function for(?Model $model): static
     {
         $this->for = $model;
 
         return $this;
     }
 
-    public function title(?string $title): self
+    public function title(?string $title): static
     {
         $this->title = $title;
 
         return $this;
     }
 
-    public function cta(?string $cta): self
+    public function cta(?string $cta): static
     {
         $this->cta = $cta;
 
         return $this;
     }
 
-    public function action(?string $action): self
+    public function action(?string $action): static
     {
         $this->action = $action;
 
@@ -73,14 +81,64 @@ class Step
     /**
      * @param  array<string, mixed>  $meta
      */
-    public function meta(array $meta): self
+    public function meta(array $meta): static
     {
         $this->meta = $meta;
 
         return $this;
     }
 
-    public function completeIf(?Closure $callback): self
+    public function key(?string $key): static
+    {
+        $this->key = $key;
+
+        return $this;
+    }
+
+    public function order(?int $order): static
+    {
+        $this->order = $order;
+
+        return $this;
+    }
+
+    public function optional(bool $optional = true): static
+    {
+        $this->optional = $optional;
+
+        return $this;
+    }
+
+    public function required(): static
+    {
+        $this->optional = false;
+
+        return $this;
+    }
+
+    /**
+     * The stable identifier for this step, falling back to a slug of its title.
+     */
+    public function stepKey(): string
+    {
+        if (! is_null($this->key)) {
+            return $this->key;
+        }
+
+        return Str::slug((string) $this->title);
+    }
+
+    public function isOptional(): bool
+    {
+        return $this->optional;
+    }
+
+    public function isRequired(): bool
+    {
+        return ! $this->optional;
+    }
+
+    public function completeIf(?Closure $callback): static
     {
         $this->complete = $callback;
 
@@ -101,7 +159,7 @@ class Step
         return ! $this->isCompleted();
     }
 
-    public function excludeIf(?Closure $callback): self
+    public function excludeIf(?Closure $callback): static
     {
         $this->exclude = $callback;
 
@@ -122,17 +180,24 @@ class Step
         return ! $this->isExcluded();
     }
 
+    public function toData(): StepData
+    {
+        return new StepData(
+            key: $this->stepKey(),
+            title: $this->title,
+            cta: $this->cta,
+            action: $this->action,
+            isCompleted: $this->isCompleted(),
+            isOptional: $this->optional,
+            meta: $this->meta,
+        );
+    }
+
     /**
      * @return array<string, mixed>
      */
     public function toArray(): array
     {
-        return [
-            'title' => $this->title,
-            'cta' => $this->cta,
-            'action' => $this->action,
-            'is_completed' => $this->isCompleted(),
-            'meta' => $this->meta,
-        ];
+        return $this->toData()->toArray();
     }
 }

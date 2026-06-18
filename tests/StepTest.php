@@ -59,10 +59,12 @@ it('returns step as array with completness', function () {
 
     expect($step->toArray())
         ->toBe([
+            'key' => 'my-title',
             'title' => 'My Title',
             'cta' => 'Complete Profile',
             'action' => 'complete-profile',
             'is_completed' => true,
+            'is_optional' => false,
             'meta' => [
                 'test' => 'yes',
             ],
@@ -115,4 +117,58 @@ it('checks whether step should be excluded or not for specific model', function 
         ->for($model)
         ->isExcluded()->toBeTrue()
         ->isNotExcluded()->toBeFalse();
+});
+
+it('returns its explicit key', function () {
+    expect(Step::make('Upload Photo')->key('upload-photo')->stepKey())
+        ->toBe('upload-photo');
+});
+
+it('slugs its key from the title when none is set', function () {
+    expect(Step::make('Upload A Photo')->stepKey())->toBe('upload-a-photo');
+});
+
+it('returns an empty key when there is no title or explicit key', function () {
+    expect(Step::make()->stepKey())->toBe('');
+});
+
+it('is required by default and can be marked optional', function () {
+    $step = Step::make('Add a bio');
+
+    expect($step)
+        ->isOptional()->toBeFalse()
+        ->isRequired()->toBeTrue();
+
+    $step->optional();
+
+    expect($step)
+        ->isOptional()->toBeTrue()
+        ->isRequired()->toBeFalse();
+
+    $step->required();
+
+    expect($step)
+        ->isOptional()->toBeFalse()
+        ->isRequired()->toBeTrue();
+
+    expect(Step::make('Add a bio')->optional(false)->isOptional())->toBeFalse();
+});
+
+it('holds an order value', function () {
+    expect(Step::make('One')->order(3)->order)->toBe(3);
+});
+
+it('preserves its subtype through fluent setters', function () {
+    $step = Step::make('One')
+        ->title('Two')
+        ->cta('Go')
+        ->action('route')
+        ->meta(['x' => 1])
+        ->key('two')
+        ->order(1)
+        ->optional()
+        ->completeIf(fn () => true)
+        ->excludeIf(fn () => false);
+
+    expect($step)->toBeInstanceOf(Step::class);
 });
