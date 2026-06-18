@@ -76,6 +76,31 @@ Onboarding::register([
 ]);
 ```
 
+### Fluent registration
+
+`Onboarding::flow()` creates, registers, and returns an empty named flow you can build
+inline:
+
+```php
+Onboarding::flow('default')
+    ->title('Profile Onboarding')
+    ->add('Upload Photo')->key('upload-photo')->cta('Upload Now')
+        ->action('users@photo@upload')
+        ->completeIf(fn (?User $user) => (bool) $user?->photo);
+```
+
+The registry also exposes `has()`, `forget()`, and `flush()`:
+
+```php
+Onboarding::has('admin');     // bool
+Onboarding::forget('admin');  // remove one flow
+Onboarding::flush();          // remove all flows
+```
+
+Registering a non-`Flow` class string throws
+`RoundlyConsulting\Onboarding\Exceptions\InvalidFlowException` (which extends
+`InvalidArgumentException`).
+
 ### Custom flow classes
 
 For reusable flows, extend `Flow` and configure it in `setup()`:
@@ -141,16 +166,84 @@ $flow = $user->onboarding('admin');          // a specific flow by key
 $flow = $user->onboarding('missing', $fallback = new Flow()); // fallback when the key is unknown
 
 $flow?->title;                 // "Profile Onboarding"
-$flow?->isCompleted();         // bool — every (non-excluded) step is complete
-$flow?->isInProgress();        // bool — at least one step remains
+$flow?->isCompleted();         // bool — every required, non-excluded step is complete
+$flow?->isInProgress();        // bool — at least one required step remains
 $flow?->nextStep();            // the first incomplete Step, or null
+$flow?->currentStep();         // alias of nextStep() — the step to resume on
 $flow?->steps();               // Collection<int, Step> visible to this model (excluded steps removed)
 $flow?->all();                 // Collection<int, Step> including excluded steps
-$flow?->percentageCompleted(); // float, e.g. 66.67
+$flow?->percentageCompleted(); // float across all visible steps, e.g. 66.67
 $flow?->toArray();             // a JSON-ready array for your API/frontend
+$flow?->toData();              // a typed RoundlyConsulting\Onboarding\DataTransferObjects\FlowData
 ```
 
 `onboarding()` returns `null` when no matching flow is registered and no fallback is given.
+
+### Model readers
+
+The `GetsOnboarded` trait adds null-safe one-liners so you don't have to chain through
+`onboarding()?->...` yourself. Each accepts an optional flow key:
+
+```php
+$user->hasCompletedOnboarding();   // bool — false when no flow is registered
+$user->isOnboarding();             // bool — in progress
+$user->onboardingProgress();       // float — 0.0 when no flow is registered
+$user->nextOnboardingStep();       // ?Step
+$user->hasCompletedOnboarding('admin'); // target a specific flow key
+```
+
+### Position and resume
+
+A flow derives position information on the fly — nothing is stored:
+
+```php
+$flow->position();          // 1-based human position, e.g. "step 3"
+$flow->count();             // number of visible steps
+$flow->completedCount();    // visible steps already complete
+$flow->currentStepIndex();  // 0-based index of the current step, null when complete
+$flow->isStarted();         // bool — at least one step complete
+$flow->isEmpty();           // bool — no visible steps
+```
+
+An **empty** flow is treated as fully complete: `isCompleted()` is `true` and
+`percentageCompleted()` is `100.0`.
+
+### Addressing steps by key
+
+Every step has a stable key — set it explicitly with `key()`, or let it fall back to a slug
+of the title. Read it with `stepKey()`:
+
+```php
+$flow->step('upload-photo')?->isCompleted();
+$flow->hasStep('upload-photo');           // bool
+$step->stepKey();                          // 'upload-photo' (explicit or slugged from the title)
+```
+
+### Optional steps
+
+Mark a step `optional()` so it guides the user without blocking completion. Optional steps are
+excluded from `isCompleted()` and from `requiredPercentageCompleted()`, but still count toward
+the default `percentageCompleted()`:
+
+```php
+Onboarding::flow('default')
+    ->add('Add a bio')->key('bio')->optional()
+        ->completeIf(fn (?User $user) => filled($user?->bio));
+
+$flow->requiredSteps();               // Collection<int, Step>
+$flow->optionalSteps();               // Collection<int, Step>
+$flow->requiredPercentageCompleted(); // float over required steps only
+```
+
+### Ordering
+
+Steps follow insertion order by default. Give any step an explicit `order()` and the flow
+sorts by it:
+
+```php
+Step::make('Verify email')->order(1);
+Step::make('Upload photo')->order(2);
+```
 
 ### Steps
 
@@ -170,9 +263,35 @@ Step::make('Verify email')
     ->excludeIf(fn (?User $user) => $user?->is_guest);
 ```
 
-Available step helpers: `title()`, `cta()`, `action()`, `meta()`, `completeIf()`,
-`excludeIf()`, plus the predicates `isCompleted()`, `isNotCompleted()`, `isExcluded()`,
-`isNotExcluded()`, and `toArray()`.
+Available step helpers: `title()`, `cta()`, `action()`, `meta()`, `key()`, `order()`,
+`optional()`, `required()`, `completeIf()`, `excludeIf()`, plus the predicates
+`isCompleted()`, `isNotCompleted()`, `isExcluded()`, `isNotExcluded()`, `isOptional()`,
+`isRequired()`, the `stepKey()` reader, and `toArray()` / `toData()`.
+
+### Analytics events
+
+Because the package is stateless it can't detect transitions on its own, but it can announce
+the current truth when you ask it to. Call `record()` at your own checkpoint (for example,
+after a request that may have completed a step) and it dispatches `StepCompleted` for every
+complete step and `FlowCompleted` when the whole flow is complete. **Reads never dispatch** —
+only `record()` does.
+
+```php
+use RoundlyConsulting\Onboarding\Events\FlowCompleted;
+use RoundlyConsulting\Onboarding\Events\StepCompleted;
+
+$user->onboarding()?->record();
+
+Event::listen(StepCompleted::class, fn (StepCompleted $e) => /* $e->step, $e->for */);
+Event::listen(FlowCompleted::class, fn (FlowCompleted $e) => /* $e->flow, $e->for */);
+```
+
+### Inspecting flows from the CLI
+
+```bash
+php artisan onboarding:list            # all registered flows
+php artisan onboarding:list default    # the steps of one flow
+```
 
 ### Serializing for an API
 
@@ -183,17 +302,26 @@ Available step helpers: `title()`, `cta()`, `action()`, `meta()`, `completeIf()`
     'title' => 'Profile Onboarding',
     'percentage' => 50.0,
     'next_step' => [
+        'key' => 'upload-photo',
         'title' => 'Upload Photo',
         'cta' => 'Upload Now',
         'action' => 'users@photo@upload',
         'is_completed' => false,
+        'is_optional' => false,
         'meta' => [],
     ],
+    'current_step' => [
+        // same shape as next_step
+    ],
+    'is_completed' => false,
     'steps' => [
-        // each step as ['title', 'cta', 'action', 'is_completed', 'meta']
+        // each step as ['key', 'title', 'cta', 'action', 'is_completed', 'is_optional', 'meta']
     ],
 ]
 ```
+
+For a typed equivalent, `Flow::toData()` returns a `FlowData` DTO (and `Step::toData()` a
+`StepData`); both implement `Arrayable` and `JsonSerializable`.
 
 ## Testing
 
