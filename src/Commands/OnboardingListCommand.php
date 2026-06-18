@@ -63,7 +63,7 @@ final class OnboardingListCommand extends Command
             ['Key', 'Title', 'Optional', 'Completed'],
             $flow->steps()->map(fn (Step $step): array => [
                 $step->stepKey(),
-                $step->title ?? '—',
+                $step->resolvedTitle() ?? '—',
                 $step->isOptional() ? 'yes' : 'no',
                 $step->isCompleted() ? 'yes' : 'no',
             ])->values()->all(),
