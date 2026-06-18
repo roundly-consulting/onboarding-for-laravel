@@ -77,3 +77,72 @@ it('has default onboarding key', function () {
 
     expect($user->defaultOnboardingKey())->toBe('default');
 });
+
+it('reports safe defaults when no flow is registered', function () {
+    $user = new User;
+
+    expect($user)
+        ->hasCompletedOnboarding()->toBeFalse()
+        ->isOnboarding()->toBeFalse()
+        ->onboardingProgress()->toBe(0.0)
+        ->nextOnboardingStep()->toBeNull();
+});
+
+it('reports progress for an in-progress flow', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('One')->completeIf(fn () => true),
+        Step::make('Two')->completeIf(fn () => false),
+    ]));
+
+    $user = new User;
+
+    expect($user)
+        ->hasCompletedOnboarding()->toBeFalse()
+        ->isOnboarding()->toBeTrue()
+        ->onboardingProgress()->toBe(50.0)
+        ->nextOnboardingStep()->title->toBe('Two');
+});
+
+it('reports a completed flow through the model readers', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('One')->completeIf(fn () => true),
+    ]));
+
+    $user = new User;
+
+    expect($user)
+        ->hasCompletedOnboarding()->toBeTrue()
+        ->isOnboarding()->toBeFalse()
+        ->onboardingProgress()->toBe(100.0)
+        ->nextOnboardingStep()->toBeNull();
+});
+
+it('passes the bound model into completion closures via the readers', function () {
+    $fakeModel = null;
+
+    Onboarding::register('default', new Flow([
+        Step::make('One')->completeIf(function (?Model $model) use (&$fakeModel) {
+            $fakeModel = $model;
+
+            return true;
+        }),
+    ]));
+
+    $user = new User;
+    $user->hasCompletedOnboarding();
+
+    expect($fakeModel)->toBe($user);
+});
+
+it('reads a specific flow by key from the model', function () {
+    Onboarding::register('admin', new Flow([
+        Step::make('One')->completeIf(fn () => false),
+    ]));
+
+    $user = new User;
+
+    expect($user)
+        ->hasCompletedOnboarding('admin')->toBeFalse()
+        ->onboardingProgress('admin')->toBe(0.0)
+        ->nextOnboardingStep('admin')->title->toBe('One');
+});
