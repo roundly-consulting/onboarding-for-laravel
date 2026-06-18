@@ -4,15 +4,24 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Onboarding;
 
+use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Traits\Macroable;
 use RoundlyConsulting\Onboarding\Exceptions\InvalidFlowException;
 
 class Registry
 {
+    use Macroable;
+
     public static string $default = 'default';
 
     /** @var array<string, Flow> */
     protected array $flows = [];
+
+    /** @var (Closure(Authenticatable|Model|null): ?string)|null */
+    protected ?Closure $resolver = null;
 
     /**
      * @param  Flow|array<int, Step>|class-string<Flow>  $key
@@ -63,6 +72,7 @@ class Registry
     public function flush(): self
     {
         $this->flows = [];
+        $this->resolver = null;
 
         return $this;
     }
@@ -73,6 +83,36 @@ class Registry
     public function all(): Collection
     {
         return collect($this->flows);
+    }
+
+    /**
+     * Register a callback that maps a subject to the flow key it should use.
+     *
+     * @param  Closure(Authenticatable|Model|null): ?string  $resolver
+     */
+    public function resolveUsing(Closure $resolver): self
+    {
+        $this->resolver = $resolver;
+
+        return $this;
+    }
+
+    /**
+     * Resolve the flow that applies to a subject: the resolver's choice when it
+     * returns a known key, otherwise the default flow. Null only when neither
+     * exists.
+     */
+    public function resolveFor(Authenticatable|Model|null $subject): ?Flow
+    {
+        if ($this->resolver !== null) {
+            $key = ($this->resolver)($subject);
+
+            if (is_string($key) && $this->has($key)) {
+                return $this->find($key)?->for($subject);
+            }
+        }
+
+        return $this->find(self::$default)?->for($subject);
     }
 
     /**

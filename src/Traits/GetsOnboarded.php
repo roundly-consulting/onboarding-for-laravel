@@ -26,6 +26,14 @@ trait GetsOnboarded
         return $flow?->for($this);
     }
 
+    /**
+     * Let the registry's resolver pick the right flow for this model.
+     */
+    public function resolvedOnboarding(): ?Flow
+    {
+        return Onboarding::resolveFor($this);
+    }
+
     public function defaultOnboardingKey(): string
     {
         return Registry::$default;

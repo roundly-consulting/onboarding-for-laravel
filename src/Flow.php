@@ -4,10 +4,20 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Onboarding;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
+use Illuminate\Support\Traits\Macroable;
+use RoundlyConsulting\Onboarding\Contracts\OnboardingStore;
 use RoundlyConsulting\Onboarding\DataTransferObjects\FlowData;
+use RoundlyConsulting\Onboarding\DataTransferObjects\SectionData;
 use RoundlyConsulting\Onboarding\DataTransferObjects\StepData;
 use RoundlyConsulting\Onboarding\Events\FlowCompleted;
 use RoundlyConsulting\Onboarding\Events\StepCompleted;
@@ -15,13 +25,20 @@ use RoundlyConsulting\Onboarding\Events\StepCompleted;
 /** @phpstan-consistent-constructor */
 class Flow
 {
+    use Macroable;
+
+    /**
+     * The section key used for steps that declare no group.
+     */
+    public const UNGROUPED_SECTION = 'general';
+
     /**
      * @param  array<int, Step>  $steps
      */
     public function __construct(
         public array $steps = [],
         public ?string $title = null,
-        public ?Model $for = null,
+        public Authenticatable|Model|null $for = null,
     ) {
         $this->setup();
     }
@@ -53,15 +70,32 @@ class Flow
         return $this;
     }
 
-    public function for(?Model $model): static
+    public function for(Authenticatable|Model|null $subject): static
     {
-        $this->for = $model;
+        $this->for = $subject;
 
         return $this;
     }
 
     /**
-     * All steps (including excluded ones), bound to the flow's model and ordered.
+     * The subject reads bind to: the explicit subject when set, otherwise the
+     * authenticated user when an auth context is available, otherwise null.
+     */
+    protected function resolveSubject(): Authenticatable|Model|null
+    {
+        if ($this->for !== null) {
+            return $this->for;
+        }
+
+        if (Auth::getFacadeApplication() === null) {
+            return null;
+        }
+
+        return Auth::user();
+    }
+
+    /**
+     * All steps (including excluded ones), bound to the flow's subject and ordered.
      *
      * Steps sort by their explicit `order` when any step declares one; otherwise
      * the original insertion order is preserved.
@@ -70,7 +104,9 @@ class Flow
      */
     public function all(): Collection
     {
-        $steps = collect($this->steps)->map(fn (Step $step): Step => $step->for($this->for));
+        $subject = $this->resolveSubject();
+
+        $steps = collect($this->steps)->map(fn (Step $step): Step => $step->for($subject));
 
         $hasOrder = $steps->contains(fn (Step $step): bool => ! is_null($step->order));
 
@@ -84,13 +120,25 @@ class Flow
     }
 
     /**
-     * The steps visible to the bound model (excluded steps removed).
+     * The steps visible to the bound subject (excluded and dismissed steps removed).
      *
      * @return Collection<int, Step>
      */
     public function steps(): Collection
     {
-        return $this->all()->filter->isNotExcluded()->values();
+        return $this->all()
+            ->filter->isNotExcluded()
+            ->reject(fn (Step $step): bool => $this->isDismissedStep($step))
+            ->values();
+    }
+
+    /**
+     * A dismissible, optional step the bound subject has dismissed drops out of
+     * the visible list. Required steps can never be dismissed away.
+     */
+    private function isDismissedStep(Step $step): bool
+    {
+        return $step->isOptional() && $step->isDismissible() && $step->isDismissed();
     }
 
     /**
@@ -228,25 +276,156 @@ class Flow
     }
 
     /**
-     * Evaluate the flow against its bound model and announce the current truth.
+     * Per-group sections derived from the visible steps. Ungrouped steps fall
+     * into the reserved "general" section. Sections follow each group's
+     * first appearance in the ordered step list.
      *
-     * Because the package is stateless it cannot diff transitions; it dispatches
-     * StepCompleted for every step that is currently complete and FlowCompleted
-     * when the whole flow is complete. Reads never dispatch — only this explicit
-     * call does, and only when Laravel's event dispatcher is available.
+     * @return Collection<int, SectionData>
      */
-    public function record(): static
+    public function sections(): Collection
+    {
+        $grouped = $this->steps()->groupBy(
+            fn (Step $step): string => $step->groupName() ?? self::UNGROUPED_SECTION,
+        );
+
+        return $grouped
+            ->map(fn (Collection $steps, string $group): SectionData => $this->makeSection($group, $steps))
+            ->values();
+    }
+
+    /**
+     * Alias of sections() for discoverability.
+     *
+     * @return Collection<int, SectionData>
+     */
+    public function groups(): Collection
+    {
+        return $this->sections();
+    }
+
+    public function section(string $group): ?SectionData
+    {
+        return $this->sections()->first(fn (SectionData $section): bool => $section->key === $group);
+    }
+
+    /**
+     * @param  Collection<int, Step>  $steps
+     */
+    private function makeSection(string $group, Collection $steps): SectionData
+    {
+        $percentage = $steps->percentage(fn (Step $step): bool => $step->isCompleted()) ?? 100.0;
+
+        $isCompleted = $steps->filter->isRequired()->every->isCompleted();
+
+        return new SectionData(
+            key: $group,
+            title: $group,
+            percentage: $percentage,
+            isCompleted: $isCompleted,
+            steps: array_values($steps->map(fn (Step $step): StepData => $step->toData())->all()),
+        );
+    }
+
+    /**
+     * Dismiss a step for the bound subject. A no-op without a bound store.
+     */
+    public function dismiss(string $key): static
+    {
+        $step = $this->step($key);
+
+        if ($step !== null && $step->isDismissible() && App::getFacadeApplication() !== null && App::bound(OnboardingStore::class)) {
+            $store = App::make(OnboardingStore::class);
+
+            if (method_exists($store, 'markDismissed')) {
+                $store->markDismissed($this->resolveSubject(), $key);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Build a redirect to the current step's target (route then URL then
+     * legacy action), or null when there is no resolvable target.
+     */
+    public function redirectToCurrentStep(): ?RedirectResponse
+    {
+        $step = $this->currentStep();
+
+        if ($step === null) {
+            return null;
+        }
+
+        return $this->redirectForStep($step);
+    }
+
+    private function redirectForStep(Step $step): ?RedirectResponse
+    {
+        if (Redirect::getFacadeApplication() === null) {
+            return null;
+        }
+
+        if ($step->route !== null && $this->routeExists($step->route)) {
+            return Redirect::route($step->route);
+        }
+
+        $target = $step->url ?? $step->action;
+
+        if ($target === null) {
+            return null;
+        }
+
+        if ($this->routeExists($target)) {
+            return Redirect::route($target);
+        }
+
+        if (Str::startsWith($target, ['http://', 'https://', '/'])) {
+            return Redirect::to($target);
+        }
+
+        return null;
+    }
+
+    private function routeExists(string $name): bool
+    {
+        // routeExists() is only reached from redirectForStep(), which has
+        // already confirmed the (shared) facade application is bootstrapped.
+        return Route::has($name);
+    }
+
+    /**
+     * Evaluate the flow against its bound subject and announce the current truth.
+     *
+     * With no argument, dispatches StepCompleted for every currently-complete
+     * step and FlowCompleted when the whole flow is complete. With a step key,
+     * announces only that step (if it exists and is complete), still firing
+     * FlowCompleted when that completion finishes the flow.
+     *
+     * When a host has bound an OnboardingStore, steps already recorded as
+     * completed (completedAt() is non-null) are suppressed, giving once-only
+     * semantics — the host owns persistence via the event listener.
+     *
+     * Reads never dispatch — only this explicit call does, and only when
+     * Laravel's event dispatcher is available.
+     */
+    public function record(?string $key = null): static
     {
         if (! $this->dispatcherIsAvailable()) {
             return $this;
         }
 
-        $this->steps()
-            ->filter->isCompleted()
-            ->each(fn (Step $step) => Event::dispatch(new StepCompleted($step, $this->for)));
+        $subject = $this->resolveSubject();
+
+        $candidates = $key === null
+            ? $this->steps()->filter->isCompleted()
+            : $this->steps()->filter(fn (Step $step): bool => $step->stepKey() === $key && $step->isCompleted());
+
+        $candidates
+            ->reject(fn (Step $step): bool => $step->completedAt() !== null)
+            ->each(fn (Step $step) => Event::dispatch(new StepCompleted($step, $subject)));
 
         if ($this->isCompleted()) {
-            Event::dispatch(new FlowCompleted($this, $this->for));
+            Event::dispatch(new FlowCompleted($this, $subject));
         }
 
         return $this;
