@@ -1,0 +1,12 @@
+parameters:
+    level: 7
+    paths:
+        - src
+    ignoreErrors:
+        # GetsOnboarded is a public, consumer-facing trait: host-app models
+        # (e.g. the application's User model) apply it. Those classes live
+        # outside this package, so PHPStan can never observe it "used" in
+        # source. It is fully exercised by the test suite.
+        -
+            identifier: trait.unused
+            path: src/Traits/GetsOnboarded.php
