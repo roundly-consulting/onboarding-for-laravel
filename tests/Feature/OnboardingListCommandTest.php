@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Lang;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Step;
@@ -41,6 +42,18 @@ it('inspects a single flow by key', function () {
         ->and(Artisan::output())
         ->toContain('upload-photo')
         ->toContain('Add a bio');
+});
+
+it('shows the resolved (translated) step title', function () {
+    Lang::addLines(['onboarding.cli.title' => 'Translated Step'], 'en');
+
+    Onboarding::register('default', Flow::make('Setup')->of([
+        Step::make('onboarding.cli.title'),
+    ]));
+
+    Artisan::call('onboarding:list', ['key' => 'default']);
+
+    expect(Artisan::output())->toContain('Translated Step');
 });
 
 it('fails when inspecting an unknown flow', function () {

@@ -3,8 +3,15 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Lang;
 use RoundlyConsulting\Onboarding\Step;
+use RoundlyConsulting\Onboarding\Tests\AuthIdentity;
 use RoundlyConsulting\Onboarding\Tests\User;
+
+afterEach(function () {
+    Step::flushMacros();
+});
 
 it('holds options in public properties', function () {
     $step = new Step(
@@ -68,6 +75,7 @@ it('returns step as array with completness', function () {
             'meta' => [
                 'test' => 'yes',
             ],
+            'group' => null,
         ]);
 });
 
@@ -167,8 +175,167 @@ it('preserves its subtype through fluent setters', function () {
         ->key('two')
         ->order(1)
         ->optional()
-        ->completeIf(fn () => true)
-        ->excludeIf(fn () => false);
+        ->group('profile')
+        ->route('home')
+        ->url('/x')
+        ->translatable()
+        ->dismissible()
+        ->completeWhen(fn () => true)
+        ->excludeWhen(fn () => false);
 
     expect($step)->toBeInstanceOf(Step::class);
+});
+
+it('aliases completeWhen/excludeWhen to the if setters', function () {
+    $step = Step::make('One')->completeWhen(fn () => false)->excludeWhen(fn () => true);
+
+    expect($step)
+        ->complete->toBeInstanceOf(Closure::class)
+        ->exclude->toBeInstanceOf(Closure::class)
+        ->isCompleted()->toBeFalse()
+        ->isExcluded()->toBeTrue();
+});
+
+it('completes when an attribute is filled, with dot paths', function () {
+    $filled = new User(['avatar_path' => '/me.jpg']);
+    $empty = new User(['avatar_path' => '']);
+    $null = new User;
+
+    expect(Step::make('Photo')->completeWhenFilled('avatar_path')->for($filled)->isCompleted())->toBeTrue();
+    expect(Step::make('Photo')->completeWhenFilled('avatar_path')->for($empty)->isCompleted())->toBeFalse();
+    expect(Step::make('Photo')->completeWhenFilled('avatar_path')->for($null)->isCompleted())->toBeFalse();
+    expect(Step::make('Photo')->completeWhenFilled('avatar_path')->isCompleted())->toBeFalse();
+
+    $dotted = new User(['profile' => ['avatar' => 'x']]);
+    expect(Step::make('Photo')->completeWhenFilled('profile.avatar')->for($dotted)->isCompleted())->toBeTrue();
+    expect(Step::make('Photo')->completeWhenFilled('profile.avatar')->for(new User(['profile' => []]))->isCompleted())->toBeFalse();
+});
+
+it('completes when an attribute is truthy', function () {
+    expect(Step::make('Verify')->completeWhenTrue('verified')->for(new User(['verified' => 1]))->isCompleted())->toBeTrue();
+    expect(Step::make('Verify')->completeWhenTrue('verified')->for(new User(['verified' => 0]))->isCompleted())->toBeFalse();
+    expect(Step::make('Verify')->completeWhenTrue('verified')->isCompleted())->toBeFalse();
+});
+
+it('prefers a no-arg method over an attribute for completeWhenTrue', function () {
+    $subscribed = new User(['subscribed' => true]);
+    $unsubscribed = new User(['subscribed' => false]);
+
+    expect(Step::make('Sub')->completeWhenTrue('hasSubscription')->for($subscribed)->isCompleted())->toBeTrue();
+    expect(Step::make('Sub')->completeWhenTrue('hasSubscription')->for($unsubscribed)->isCompleted())->toBeFalse();
+});
+
+it('falls back to an attribute when a method needs arguments', function () {
+    // greet() requires an argument, so data_get('greet') is used (null → false).
+    expect(Step::make('Greet')->completeWhenTrue('greet')->for(new User)->isCompleted())->toBeFalse();
+});
+
+it('completes when a relation resolves to a non-empty value', function () {
+    expect(Step::make('Team')->completeWhenHas('rel')->for(new User(['rel' => new User]))->isCompleted())->toBeTrue();
+    expect(Step::make('Team')->completeWhenHas('rel')->for(new User(['rel' => new Collection([1])]))->isCompleted())->toBeTrue();
+    expect(Step::make('Team')->completeWhenHas('rel')->for(new User(['rel' => new Collection]))->isCompleted())->toBeFalse();
+    expect(Step::make('Team')->completeWhenHas('rel')->for(new User(['rel' => ['a']]))->isCompleted())->toBeTrue();
+    expect(Step::make('Team')->completeWhenHas('rel')->for(new User(['rel' => []]))->isCompleted())->toBeFalse();
+    expect(Step::make('Team')->completeWhenHas('rel')->for(new User)->isCompleted())->toBeFalse();
+    expect(Step::make('Team')->completeWhenHas('rel')->isCompleted())->toBeFalse();
+});
+
+it('mirrors the declarative helpers on the exclude side', function () {
+    expect(Step::make('X')->excludeWhenFilled('avatar_path')->for(new User(['avatar_path' => 'x']))->isExcluded())->toBeTrue();
+    expect(Step::make('X')->excludeWhenTrue('verified')->for(new User(['verified' => true]))->isExcluded())->toBeTrue();
+    expect(Step::make('X')->excludeWhenHas('rel')->for(new User(['rel' => ['a']]))->isExcluded())->toBeTrue();
+    expect(Step::make('X')->excludeWhenFilled('avatar_path')->isExcluded())->toBeFalse();
+});
+
+it('accepts a non-Eloquent Authenticatable subject', function () {
+    $identity = new AuthIdentity;
+    $identity->verified = true;
+
+    $step = Step::make('Verify')->completeWhenTrue('verified')->for($identity);
+
+    expect($step->isCompleted())->toBeTrue()
+        ->and($step->for)->toBe($identity);
+});
+
+it('sets and reads a group', function () {
+    expect(Step::make('Card')->group('billing'))
+        ->groupName()->toBe('billing');
+
+    expect(Step::make('Card')->groupName())->toBeNull();
+});
+
+it('resolves a translation key when one exists', function () {
+    Lang::addLines(['onboarding.photo.title' => 'Upload your photo'], 'en');
+    Lang::addLines(['onboarding.photo.cta' => 'Upload now'], 'en');
+
+    $step = Step::make('onboarding.photo.title')->cta('onboarding.photo.cta');
+
+    expect($step)
+        ->resolvedTitle()->toBe('Upload your photo')
+        ->resolvedCta()->toBe('Upload now');
+});
+
+it('passes through a dotted string with no matching translation', function () {
+    $step = Step::make('Upload your photo.');
+
+    expect($step->resolvedTitle())->toBe('Upload your photo.');
+});
+
+it('passes through a plain string verbatim', function () {
+    expect(Step::make('Upload Photo')->resolvedTitle())->toBe('Upload Photo');
+    expect(Step::make()->resolvedTitle())->toBeNull();
+    expect(Step::make('X')->resolvedCta())->toBeNull();
+});
+
+it('forces translation when translatable(true)', function () {
+    Lang::addLines(['onboarding.forced' => 'Forced'], 'en');
+
+    expect(Step::make('onboarding.forced')->translatable()->resolvedTitle())->toBe('Forced');
+});
+
+it('forces a raw string when translatable(false)', function () {
+    Lang::addLines(['onboarding.raw' => 'Translated'], 'en');
+
+    expect(Step::make('onboarding.raw')->translatable(false)->resolvedTitle())->toBe('onboarding.raw');
+});
+
+it('falls back to raw copy when the translator is unavailable', function () {
+    $app = Lang::getFacadeApplication();
+    Lang::clearResolvedInstances();
+    Lang::setFacadeApplication(null);
+
+    try {
+        expect(Step::make('onboarding.x.title')->resolvedTitle())->toBe('onboarding.x.title');
+    } finally {
+        Lang::setFacadeApplication($app);
+    }
+});
+
+it('carries resolved copy into the dto', function () {
+    Lang::addLines(['onboarding.dto.title' => 'Resolved Title'], 'en');
+
+    expect(Step::make('onboarding.dto.title')->toData()->title)->toBe('Resolved Title');
+});
+
+it('registers and calls instance macros', function () {
+    Step::macro('completeWhenVerified', fn () => $this->completeWhenTrue('verified'));
+
+    $step = Step::make('Verify')->completeWhenVerified();
+
+    expect(Step::hasMacro('completeWhenVerified'))->toBeTrue()
+        ->and($step->for(new User(['verified' => true]))->isCompleted())->toBeTrue();
+});
+
+it('reports a missing macro', function () {
+    expect(Step::hasMacro('missing'))->toBeFalse();
+});
+
+it('is dismissible only when flagged', function () {
+    expect(Step::make('Bio')->isDismissible())->toBeFalse()
+        ->and(Step::make('Bio')->dismissible()->isDismissible())->toBeTrue();
+});
+
+it('is never dismissed and has no completedAt without a store', function () {
+    expect(Step::make('Bio')->dismissible()->isDismissed())->toBeFalse()
+        ->and(Step::make('Bio')->completedAt())->toBeNull();
 });

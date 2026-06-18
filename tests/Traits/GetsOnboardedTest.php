@@ -146,3 +146,21 @@ it('reads a specific flow by key from the model', function () {
         ->onboardingProgress('admin')->toBe(0.0)
         ->nextOnboardingStep('admin')->title->toBe('One');
 });
+
+it('resolves the right flow through the resolver and binds the model', function () {
+    Onboarding::register('default', new Flow)
+        ->register('admin', $admin = new Flow([Step::make('One')]));
+
+    $captured = null;
+    Onboarding::resolveUsing(function ($subject) use (&$captured) {
+        $captured = $subject;
+
+        return 'admin';
+    });
+
+    $user = new User;
+
+    expect($user->resolvedOnboarding())->toBe($admin)
+        ->and($admin->for)->toBe($user)
+        ->and($captured)->toBe($user);
+});

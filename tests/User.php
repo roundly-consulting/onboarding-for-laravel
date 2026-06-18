@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Onboarding\Tests;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use RoundlyConsulting\Onboarding\Traits\GetsOnboarded;
 
-class User extends Model
+class User extends Authenticatable
 {
     use GetsOnboarded {
         defaultOnboardingKey as traitDefaultOnboardingKey;
@@ -25,5 +25,15 @@ class User extends Model
         }
 
         return $this->traitDefaultOnboardingKey();
+    }
+
+    public function hasSubscription(): bool
+    {
+        return (bool) ($this->subscribed ?? false);
+    }
+
+    public function greet(string $name): string
+    {
+        return "Hello {$name}";
     }
 }

@@ -3,11 +3,20 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Route;
+use RoundlyConsulting\Onboarding\DataTransferObjects\SectionData;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Step;
 use RoundlyConsulting\Onboarding\Tests\CustomFlow;
 use RoundlyConsulting\Onboarding\Tests\User;
+
+afterEach(function () {
+    Flow::flushMacros();
+});
 
 it('makes instance by static method', function () {
     $flow = Flow::make('First Flow')->of([
@@ -177,6 +186,7 @@ it('returns array of flow with steps and completness info', function () {
             'is_completed' => false,
             'is_optional' => false,
             'meta' => [],
+            'group' => null,
         ],
         'current_step' => [
             'key' => 'two',
@@ -186,6 +196,7 @@ it('returns array of flow with steps and completness info', function () {
             'is_completed' => false,
             'is_optional' => false,
             'meta' => [],
+            'group' => null,
         ],
         'is_completed' => false,
         'steps' => [
@@ -197,6 +208,7 @@ it('returns array of flow with steps and completness info', function () {
                 'is_completed' => true,
                 'is_optional' => false,
                 'meta' => ['yep'],
+                'group' => null,
             ],
             [
                 'key' => 'two',
@@ -206,6 +218,7 @@ it('returns array of flow with steps and completness info', function () {
                 'is_completed' => false,
                 'is_optional' => false,
                 'meta' => [],
+                'group' => null,
             ],
         ],
     ]);
@@ -365,4 +378,179 @@ it('preserves its subtype through fluent flow methods', function () {
         ->addStep(Step::make('Two'));
 
     expect($flow)->toBeInstanceOf(CustomFlow::class);
+});
+
+it('binds the authenticated user implicitly when no subject is set', function () {
+    $user = new User(['verified' => true]);
+
+    $flow = new Flow([
+        Step::make('Verify')->completeWhenTrue('verified'),
+    ]);
+
+    expect($flow->isCompleted())->toBeFalse();
+
+    $this->actingAs($user);
+
+    expect($flow->isCompleted())->toBeTrue();
+});
+
+it('lets an explicit subject win over the authenticated user', function () {
+    $authUser = new User(['verified' => true]);
+    $other = new User(['verified' => false]);
+
+    $this->actingAs($authUser);
+
+    $flow = (new Flow([Step::make('Verify')->completeWhenTrue('verified')]))->for($other);
+
+    expect($flow->isCompleted())->toBeFalse();
+});
+
+it('treats the subject as null without auth or explicit binding', function () {
+    $captured = 'unset';
+
+    $flow = new Flow([
+        Step::make('One')->completeIf(function ($subject) use (&$captured) {
+            $captured = $subject;
+
+            return true;
+        }),
+    ]);
+
+    $flow->isCompleted();
+
+    expect($captured)->toBeNull();
+});
+
+it('groups steps into sections with per-section progress', function () {
+    $flow = new Flow([
+        Step::make('Photo')->group('profile')->completeIf(fn () => true),
+        Step::make('Verify')->group('profile')->completeIf(fn () => false),
+        Step::make('Card')->group('billing')->completeIf(fn () => true),
+        Step::make('Welcome')->completeIf(fn () => true),
+    ]);
+
+    $sections = $flow->sections();
+
+    expect($sections)->toBeInstanceOf(Collection::class)
+        ->toHaveCount(3)
+        ->and($sections->map->key->all())->toBe(['profile', 'billing', 'general']);
+
+    expect($flow->section('profile'))
+        ->toBeInstanceOf(SectionData::class)
+        ->percentage->toBe(50.0)
+        ->isCompleted->toBeFalse();
+
+    expect($flow->section('billing'))
+        ->percentage->toBe(100.0)
+        ->isCompleted->toBeTrue();
+
+    expect($flow->section('general')->key)->toBe('general')
+        ->and($flow->section('missing'))->toBeNull()
+        ->and($flow->groups())->toHaveCount(3);
+});
+
+it('keeps optional steps from blocking a section while counting toward its percentage', function () {
+    $flow = new Flow([
+        Step::make('Required')->group('billing')->completeIf(fn () => true),
+        Step::make('Optional')->group('billing')->optional()->completeIf(fn () => false),
+    ]);
+
+    expect($flow->section('billing'))
+        ->isCompleted->toBeTrue()
+        ->percentage->toBe(50.0);
+});
+
+it('omits excluded steps from sections', function () {
+    $flow = new Flow([
+        Step::make('Shown')->group('a')->completeIf(fn () => true),
+        Step::make('Hidden')->group('a')->excludeIf(fn () => true),
+    ]);
+
+    expect($flow->section('a')->steps)->toHaveCount(1);
+});
+
+it('registers and calls flow macros with access to the instance', function () {
+    Flow::macro('progressLabel', fn () => round($this->percentageCompleted()).'% done');
+
+    $flow = new Flow([Step::make('One')->completeIf(fn () => true)]);
+
+    expect(Flow::hasMacro('progressLabel'))->toBeTrue()
+        ->and($flow->progressLabel())->toBe('100% done');
+});
+
+it('returns null from redirectToCurrentStep for a completed flow', function () {
+    $flow = new Flow([Step::make('One')->completeIf(fn () => true)]);
+
+    expect($flow->redirectToCurrentStep())->toBeNull();
+});
+
+it('returns null from redirectToCurrentStep without a usable target', function () {
+    $flow = new Flow([Step::make('One')->action('users@photo@upload')->completeIf(fn () => false)]);
+
+    expect($flow->redirectToCurrentStep())->toBeNull();
+});
+
+it('redirects to a url target', function () {
+    $flow = new Flow([Step::make('One')->url('/setup')->completeIf(fn () => false)]);
+
+    $redirect = $flow->redirectToCurrentStep();
+
+    expect($redirect)->toBeInstanceOf(RedirectResponse::class)
+        ->and($redirect->getTargetUrl())->toEndWith('/setup');
+});
+
+it('treats a route name in action/url as a route redirect', function () {
+    Route::get('/named', fn () => 'ok')->name('named.target');
+    Route::getRoutes()->refreshNameLookups();
+
+    $flow = new Flow([Step::make('One')->action('named.target')->completeIf(fn () => false)]);
+
+    $redirect = $flow->redirectToCurrentStep();
+
+    expect($redirect)->toBeInstanceOf(RedirectResponse::class)
+        ->and($redirect->getTargetUrl())->toEndWith('/named');
+});
+
+it('returns null when the step route does not resolve and there is no other target', function () {
+    $flow = new Flow([Step::make('One')->route('missing.route')->completeIf(fn () => false)]);
+
+    expect($flow->redirectToCurrentStep())->toBeNull();
+});
+
+it('resolves the subject to null when no auth facade is available', function () {
+    $app = Auth::getFacadeApplication();
+    Auth::clearResolvedInstances();
+    Auth::setFacadeApplication(null);
+
+    $captured = 'unset';
+
+    try {
+        $flow = new Flow([
+            Step::make('One')->completeIf(function ($subject) use (&$captured) {
+                $captured = $subject;
+
+                return true;
+            }),
+        ]);
+
+        $flow->isCompleted();
+    } finally {
+        Auth::setFacadeApplication($app);
+    }
+
+    expect($captured)->toBeNull();
+});
+
+it('returns null from the redirect builder when routing is not bootstrapped', function () {
+    $app = Redirect::getFacadeApplication();
+    Redirect::clearResolvedInstances();
+    Redirect::setFacadeApplication(null);
+
+    try {
+        $flow = new Flow([Step::make('One')->url('/setup')->completeIf(fn () => false)]);
+
+        expect($flow->redirectToCurrentStep())->toBeNull();
+    } finally {
+        Redirect::setFacadeApplication($app);
+    }
 });

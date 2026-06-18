@@ -72,6 +72,75 @@ it('is a safe no-op when no event dispatcher is available', function () {
     }
 });
 
+it('announces only the targeted step', function () {
+    Event::fake();
+
+    $flow = new Flow([
+        Step::make('One')->key('one')->completeIf(fn () => true),
+        Step::make('Two')->key('two')->completeIf(fn () => true)->optional(),
+    ]);
+
+    $flow->record('one');
+
+    Event::assertDispatchedTimes(StepCompleted::class, 1);
+    Event::assertDispatched(StepCompleted::class, fn (StepCompleted $e) => $e->step->stepKey() === 'one');
+});
+
+it('dispatches nothing for an incomplete targeted step', function () {
+    Event::fake();
+
+    $flow = new Flow([Step::make('One')->key('one')->completeIf(fn () => false)]);
+    $flow->record('one');
+
+    Event::assertNotDispatched(StepCompleted::class);
+});
+
+it('dispatches nothing for an unknown targeted step', function () {
+    Event::fake();
+
+    $flow = new Flow([Step::make('One')->key('one')->completeIf(fn () => true)]);
+    $flow->record('missing');
+
+    Event::assertNotDispatched(StepCompleted::class);
+});
+
+it('fires flow completed when a targeted record finishes the flow', function () {
+    Event::fake();
+
+    $flow = new Flow([Step::make('One')->key('one')->completeIf(fn () => true)]);
+    $flow->record('one');
+
+    Event::assertDispatchedTimes(FlowCompleted::class, 1);
+});
+
+it('does not fire flow completed when a targeted record leaves it incomplete', function () {
+    Event::fake();
+
+    $flow = new Flow([
+        Step::make('One')->key('one')->completeIf(fn () => true),
+        Step::make('Two')->key('two')->completeIf(fn () => false),
+    ]);
+    $flow->record('one');
+
+    Event::assertDispatchedTimes(StepCompleted::class, 1);
+    Event::assertNotDispatched(FlowCompleted::class);
+});
+
+it('is a no-op for targeted record without a dispatcher', function () {
+    $app = Event::getFacadeApplication();
+
+    Event::clearResolvedInstances();
+    Event::setFacadeApplication(null);
+
+    try {
+        $flow = new Flow([Step::make('One')->key('one')->completeIf(fn () => true)]);
+
+        expect($flow->record('one'))->toBe($flow);
+    } finally {
+        Event::setFacadeApplication($app);
+    }
+});
+
 it('never dispatches events on read paths', function () {
     Event::fake();
 

@@ -8,6 +8,7 @@ use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Registry;
 use RoundlyConsulting\Onboarding\Step;
 use RoundlyConsulting\Onboarding\Tests\CustomFlow;
+use RoundlyConsulting\Onboarding\Tests\User;
 
 it('works as registry', function () {
     $registry = new Registry;
@@ -119,4 +120,88 @@ it('reports, forgets and flushes registered flows', function () {
     $registry->flush();
 
     expect($registry->all())->toHaveCount(0);
+});
+
+it('resolves the flow chosen by the resolver', function () {
+    $registry = new Registry;
+    $registry->register('default', new Flow)
+        ->register('admin', $admin = new Flow);
+
+    $registry->resolveUsing(fn () => 'admin');
+
+    $user = new User;
+
+    expect($registry->resolveFor($user))->toBe($admin)
+        ->and($admin->for)->toBe($user);
+});
+
+it('falls back to the default flow when the resolver returns null', function () {
+    $registry = new Registry;
+    $registry->register('default', $default = new Flow);
+
+    $registry->resolveUsing(fn () => null);
+
+    expect($registry->resolveFor(new User))->toBe($default);
+});
+
+it('falls back to the default flow for an unknown resolver key', function () {
+    $registry = new Registry;
+    $registry->register('default', $default = new Flow);
+
+    $registry->resolveUsing(fn () => 'missing');
+
+    expect($registry->resolveFor(new User))->toBe($default);
+});
+
+it('returns the default flow without a resolver', function () {
+    $registry = new Registry;
+    $registry->register('default', $default = new Flow);
+
+    expect($registry->resolveFor(new User))->toBe($default);
+});
+
+it('returns null when neither resolver nor default resolves', function () {
+    $registry = new Registry;
+
+    expect($registry->resolveFor(new User))->toBeNull();
+});
+
+it('clears the resolver on flush', function () {
+    $registry = new Registry;
+    $registry->register('default', new Flow)->register('admin', $admin = new Flow);
+    $registry->resolveUsing(fn () => 'admin');
+
+    $registry->flush();
+    $registry->register('default', $default = new Flow)->register('admin', $admin);
+
+    expect($registry->resolveFor(new User))->toBe($default);
+});
+
+it('passes the subject to the resolver', function () {
+    $registry = new Registry;
+    $registry->register('default', new Flow);
+
+    $captured = null;
+    $registry->resolveUsing(function ($subject) use (&$captured) {
+        $captured = $subject;
+
+        return null;
+    });
+
+    $user = new User;
+    $registry->resolveFor($user);
+
+    expect($captured)->toBe($user);
+});
+
+it('registers and calls registry macros', function () {
+    Registry::macro('count', fn (): int => $this->all()->count());
+
+    $registry = new Registry;
+    $registry->register('default', new Flow);
+
+    expect(Registry::hasMacro('count'))->toBeTrue()
+        ->and($registry->count())->toBe(1);
+
+    Registry::flushMacros();
 });

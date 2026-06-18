@@ -24,7 +24,24 @@ it('exposes its data through readonly properties', function () {
         ->action->toBe('users@photo@upload')
         ->isCompleted->toBeTrue()
         ->isOptional->toBeFalse()
-        ->meta->toBe(['icon' => 'camera']);
+        ->meta->toBe(['icon' => 'camera'])
+        ->group->toBeNull();
+});
+
+it('carries an optional group', function () {
+    $data = new StepData(
+        key: 'card',
+        title: 'Add a card',
+        cta: null,
+        action: null,
+        isCompleted: false,
+        isOptional: false,
+        group: 'billing',
+    );
+
+    expect($data)
+        ->group->toBe('billing')
+        ->and($data->toArray()['group'])->toBe('billing');
 });
 
 it('serializes to an array with the documented keys', function () {
@@ -45,6 +62,7 @@ it('serializes to an array with the documented keys', function () {
         'is_completed' => false,
         'is_optional' => true,
         'meta' => [],
+        'group' => null,
     ]);
 });
 
