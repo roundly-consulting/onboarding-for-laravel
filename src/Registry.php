@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Onboarding;
 
 use Illuminate\Support\Collection;
+use RoundlyConsulting\Onboarding\Exceptions\InvalidFlowException;
 
 class Registry
 {
@@ -26,7 +27,7 @@ class Registry
         }
 
         if (! is_string($key)) {
-            throw new \InvalidArgumentException('The flow key must be a string.');
+            throw InvalidFlowException::keyMustBeString();
         }
 
         $this->flows[$key] = $this->resolveFlow($flow);
@@ -34,9 +35,36 @@ class Registry
         return $this;
     }
 
+    /**
+     * Create, register, and return an empty named flow for fluent building.
+     */
+    public function flow(string $key): Flow
+    {
+        return $this->flows[$key] = new Flow;
+    }
+
     public function find(string $key, ?Flow $default = null): ?Flow
     {
         return $this->all()->get($key, $default);
+    }
+
+    public function has(string $key): bool
+    {
+        return array_key_exists($key, $this->flows);
+    }
+
+    public function forget(string $key): self
+    {
+        unset($this->flows[$key]);
+
+        return $this;
+    }
+
+    public function flush(): self
+    {
+        $this->flows = [];
+
+        return $this;
     }
 
     /**
@@ -57,6 +85,10 @@ class Registry
         }
 
         if (is_string($flow)) {
+            if ($flow !== Flow::class && ! is_subclass_of($flow, Flow::class)) {
+                throw InvalidFlowException::notAFlowClass($flow);
+            }
+
             return new $flow;
         }
 
