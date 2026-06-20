@@ -1,3 +1,11 @@
+<!-- roundly-hero:start -->
+<p align="center">
+  <a href="https://roundly-consulting.com/open-source/docs/onboarding-for-laravel?utm_source=github&utm_medium=readme&utm_campaign=open-source&utm_content=onboarding-for-laravel">
+    <img src="art/hero.png" alt="Onboarding for Laravel — Roundly open source" width="100%">
+  </a>
+</p>
+<!-- roundly-hero:end -->
+
 # Onboarding for Laravel
 
 Define and track multiple onboarding flows for your Laravel application.
