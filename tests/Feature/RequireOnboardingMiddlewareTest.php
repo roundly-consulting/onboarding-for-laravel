@@ -79,6 +79,97 @@ it('avoids a redirect loop when already on the step route', function () {
         ->assertSee('loop');
 });
 
+it('avoids a redirect loop when already on the step url target', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/billing/setup')
+        ->assertOk()
+        ->assertSee('billing');
+});
+
+it('avoids a redirect loop when already on an absolute step url target', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url(url('/billing/setup'))->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/billing/setup')
+        ->assertOk()
+        ->assertSee('billing');
+});
+
+it('avoids a redirect loop when already on the legacy action target', function () {
+    Route::get('/legacy/setup', fn () => 'legacy')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Setup')->action('/legacy/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/legacy/setup')
+        ->assertOk()
+        ->assertSee('legacy');
+});
+
+it('avoids a redirect loop when the legacy action names the current route', function () {
+    Route::get('/loop-action', fn () => 'loop-action')
+        ->middleware('onboarding')
+        ->name('onboarding.action');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Setup')->action('onboarding.action')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/loop-action')
+        ->assertOk()
+        ->assertSee('loop-action');
+});
+
+it('passes through when the current step declares no target at all', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('Setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/dashboard')
+        ->assertOk()
+        ->assertSee('dashboard');
+});
+
+it('still redirects to a url target from a different route', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/dashboard')
+        ->assertRedirect('/billing/setup');
+});
+
+it('does not confuse a different path with the step url target', function () {
+    Route::get('/billing/setup-other', fn () => 'other')
+        ->middleware('onboarding')
+        ->name('other');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)
+        ->get('/billing/setup-other')
+        ->assertRedirect('/billing/setup');
+});
+
 it('selects the flow named by the middleware parameter', function () {
     Onboarding::register('default', new Flow([
         Step::make('Default')->completeIf(fn () => true),

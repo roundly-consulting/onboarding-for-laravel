@@ -6,9 +6,12 @@ namespace RoundlyConsulting\Onboarding\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Registry;
+use RoundlyConsulting\Onboarding\Step;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -26,7 +29,7 @@ final class RequireOnboarding
             return $next($request);
         }
 
-        if ($this->currentRouteIsTarget($request, $flow)) {
+        if ($this->requestIsTarget($request, $flow)) {
             return $next($request);
         }
 
@@ -44,14 +47,55 @@ final class RequireOnboarding
         return Onboarding::find($key ?? Registry::$default)?->for($subject);
     }
 
-    private function currentRouteIsTarget(Request $request, Flow $flow): bool
+    /**
+     * Is the request already sitting on the step the flow would redirect it to?
+     *
+     * This mirrors Flow::redirectForStep()'s target precedence exactly (named
+     * route, then url, then the legacy action), so every target the middleware
+     * can redirect *to* is also a target it passes through *on*. Checking only
+     * the named route sent a step declaring a `url()` target into an infinite
+     * redirect loop as soon as that URL sat inside the guarded group.
+     */
+    private function requestIsTarget(Request $request, Flow $flow): bool
     {
         $step = $flow->currentStep();
 
-        if ($step === null || $step->route === null) {
+        if ($step !== null && $step->route !== null && Route::has($step->route)) {
+            return $request->route()?->getName() === $step->route;
+        }
+
+        return $step !== null && $this->requestIsAtTarget($request, $step);
+    }
+
+    private function requestIsAtTarget(Request $request, Step $step): bool
+    {
+        $target = $step->url ?? $step->action;
+
+        if ($target === null) {
             return false;
         }
 
-        return $request->route()?->getName() === $step->route;
+        if (Route::has($target)) {
+            return $request->route()?->getName() === $target;
+        }
+
+        if (Str::startsWith($target, ['http://', 'https://'])) {
+            return $this->normalize($request->url()) === $this->normalize($target);
+        }
+
+        if (Str::startsWith($target, '/')) {
+            return $this->normalize($request->url()) === $this->normalize($request->getSchemeAndHttpHost().$target);
+        }
+
+        return false;
+    }
+
+    /**
+     * Compare URLs without a trailing slash; the query string is already absent
+     * from Request::url().
+     */
+    private function normalize(string $url): string
+    {
+        return rtrim($url, '/');
     }
 }
