@@ -32,7 +32,18 @@ composer require roundly-consulting/onboarding-for-laravel
 
 The service provider and the `Onboarding` facade alias are registered automatically through
 package discovery. There is **no config file, no migrations, and no views** to publish — the
-package is entirely in-memory and stateless.
+package is entirely in-memory and stateless, so `vendor:publish` has nothing to offer and a
+bare `php artisan migrate` has nothing to run.
+
+Check what is wired at a glance:
+
+```bash
+php artisan about --only=onboarding
+```
+
+It reports the *shape* of your onboarding — how many flows and steps are registered, whether a
+default flow and a persistence store are bound — and never your flow keys, step copy, or
+redirect targets.
 
 ## Core concepts
 
@@ -258,8 +269,10 @@ Step::make('Add billing')->url('/billing/setup');
 
 The free-form `action()` field is still resolved as a fallback target (named route, then URL),
 but its semantics are unchanged — it remains whatever hint your frontend uses. When the current
-step has no resolvable target, or the request is already on the step's route, the middleware
-passes through (never loops). You can also build the redirect yourself:
+step has no resolvable target, or the request is **already on that target** — whether it was
+declared as a named route, an absolute URL, or a path — the middleware passes through, so the
+step's own screen can safely sit inside the guarded group without looping. You can also build
+the redirect yourself:
 
 ```php
 $user->onboarding()?->redirectToCurrentStep();   // ?RedirectResponse
