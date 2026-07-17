@@ -25,8 +25,12 @@ ArchPresets::strictTypes('RoundlyConsulting\Onboarding');
  *    A host can rebind it to its own subclass, so `final` would close a real (if undocumented)
  *    seam.
  */
-ArchPresets::finalByDefault('RoundlyConsulting\Onboarding')
-    ->ignoring([Flow::class, Step::class, Registry::class, OnboardingException::class]);
+ArchPresets::finalByDefault('RoundlyConsulting\Onboarding', [
+    Flow::class,
+    Step::class,
+    Registry::class,
+    OnboardingException::class,
+]);
 
 /**
  * `swappableModelsAreNotFinal` is NOT adopted, and this is structural rather than a
