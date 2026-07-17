@@ -21,7 +21,7 @@ use RoundlyConsulting\Onboarding\Testing\OnboardingFake;
  *
  * @see Registry
  */
-class Onboarding extends Facade
+final class Onboarding extends Facade
 {
     protected static function getFacadeAccessor(): string
     {
