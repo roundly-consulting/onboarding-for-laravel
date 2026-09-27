@@ -105,20 +105,20 @@ it('avoids a redirect loop when already on an absolute step url target', functio
         ->assertSee('billing');
 });
 
-it('avoids a redirect loop when already on the legacy action target', function () {
-    Route::get('/legacy/setup', fn () => 'legacy')->middleware('onboarding');
+it('avoids a redirect loop when already on the free-form action target', function () {
+    Route::get('/action/setup', fn () => 'action-setup')->middleware('onboarding');
 
     Onboarding::register('default', new Flow([
-        Step::make('Setup')->action('/legacy/setup')->completeIf(fn () => false),
+        Step::make('Setup')->action('/action/setup')->completeIf(fn () => false),
     ]));
 
     $this->actingAs(new User)
-        ->get('/legacy/setup')
+        ->get('/action/setup')
         ->assertOk()
-        ->assertSee('legacy');
+        ->assertSee('action-setup');
 });
 
-it('avoids a redirect loop when the legacy action names the current route', function () {
+it('avoids a redirect loop when the free-form action names the current route', function () {
     Route::get('/loop-action', fn () => 'loop-action')
         ->middleware('onboarding')
         ->name('onboarding.action');

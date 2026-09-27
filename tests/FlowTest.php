@@ -144,9 +144,9 @@ it('returns next step', function () {
     $model = new User;
 
     expect($flow)
-        ->nextStep()->title->toBe('Second Step')
+        ->currentStep()->title->toBe('Second Step')
         ->for($model)
-        ->nextStep()->title->toBe('My Step');
+        ->currentStep()->title->toBe('My Step');
 });
 
 it('returns percentage of completness', function () {

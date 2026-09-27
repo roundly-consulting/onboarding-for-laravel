@@ -16,7 +16,7 @@ it('checks usage', function () {
 
     $user = new User;
 
-    expect($user->onboarding()->nextStep())
+    expect($user->onboarding()->currentStep())
         ->title->toBe('Upload Photo')
         ->cta->toBe('Upload Now')
         ->action->toBe('users@photo@upload');
@@ -25,5 +25,5 @@ it('checks usage', function () {
         'photo' => 'photo.jpg',
     ]);
 
-    expect($user->onboarding()->nextStep())->toBeNull();
+    expect($user->onboarding()->currentStep())->toBeNull();
 });

@@ -56,6 +56,6 @@ trait GetsOnboarded
 
     public function nextOnboardingStep(?string $key = null): ?Step
     {
-        return $this->onboarding($key)?->nextStep();
+        return $this->onboarding($key)?->currentStep();
     }
 }

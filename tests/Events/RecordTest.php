@@ -150,7 +150,7 @@ it('never dispatches events on read paths', function () {
     ]);
 
     $flow->steps();
-    $flow->nextStep();
+    $flow->currentStep();
     $flow->currentStep();
     $flow->isCompleted();
     $flow->percentageCompleted();

@@ -201,8 +201,7 @@ $flow = $user->onboarding('missing', $fallback = new Flow()); // fallback when t
 $flow?->title;                 // "Profile Onboarding"
 $flow?->isCompleted();         // bool — every required, non-excluded step is complete
 $flow?->isInProgress();        // bool — at least one required step remains
-$flow?->nextStep();            // the first incomplete Step, or null
-$flow?->currentStep();         // alias of nextStep() — the step to resume on
+$flow?->currentStep();         // the first incomplete Step (the one to resume on), or null
 $flow?->steps();               // Collection<int, Step> visible to this model (excluded steps removed)
 $flow?->all();                 // Collection<int, Step> including excluded steps
 $flow?->percentageCompleted(); // float across all visible steps, e.g. 66.67
@@ -233,11 +232,10 @@ Onboarding::find('default')?->percentageCompleted();
 Onboarding::find('default')?->for($otherUser)->percentageCompleted();
 ```
 
-> **Behavioural note (since 1.1.0).** Reading a flow without calling `for()` now resolves to
-> the logged-in user instead of a `null` subject. In a context with no auth (e.g. a plain unit
-> test or a queue with no user) the subject stays `null`, exactly as before. Event listeners
-> hinting `?Model $for` should be aware that a non-Model `Authenticatable` subject may now
-> appear.
+> **Subject resolution.** Reading a flow without calling `for()` resolves to the logged-in
+> user. In a context with no auth (e.g. a plain unit test or a queue with no user) the subject
+> is `null`. Event listeners hinting `?Model $for` should be aware that a non-Model
+> `Authenticatable` subject can appear.
 
 ### Choosing the flow per subject (resolver)
 
@@ -277,8 +275,8 @@ Step::make('Complete profile')->route('profile.edit');
 Step::make('Add billing')->url('/billing/setup');
 ```
 
-The free-form `action()` field is still resolved as a fallback target (named route, then URL),
-but its semantics are unchanged — it remains whatever hint your frontend uses. When the current
+The free-form `action()` field is also resolved as a last fallback target (named route, then
+URL); beyond that it is whatever hint your frontend uses. When the current
 step has no resolvable target, or the request is **already on that target** — whether it was
 declared as a named route, an absolute URL, or a path — the middleware passes through, so the
 step's own screen can safely sit inside the guarded group without looping. You can also build

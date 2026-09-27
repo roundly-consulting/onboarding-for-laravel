@@ -51,7 +51,7 @@ final class RequireOnboarding
      * Is the request already sitting on the step the flow would redirect it to?
      *
      * This mirrors Flow::redirectForStep()'s target precedence exactly (named
-     * route, then url, then the legacy action), so every target the middleware
+     * route, then url, then the free-form action), so every target the middleware
      * can redirect *to* is also a target it passes through *on*. Checking only
      * the named route sent a step declaring a `url()` target into an infinite
      * redirect loop as soon as that URL sat inside the guarded group.

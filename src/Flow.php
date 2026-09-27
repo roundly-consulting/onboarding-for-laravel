@@ -226,14 +226,6 @@ class Flow
     }
 
     /**
-     * Alias of currentStep(), kept for backward compatibility.
-     */
-    public function nextStep(): ?Step
-    {
-        return $this->currentStep();
-    }
-
-    /**
      * Zero-based index of the current step within steps(), or null when completed.
      */
     public function currentStepIndex(): ?int
@@ -345,8 +337,8 @@ class Flow
     }
 
     /**
-     * Build a redirect to the current step's target (route then URL then
-     * legacy action), or null when there is no resolvable target.
+     * Build a redirect to the current step's target (route, then URL, then the
+     * free-form action), or null when there is no resolvable target.
      */
     public function redirectToCurrentStep(): ?RedirectResponse
     {
