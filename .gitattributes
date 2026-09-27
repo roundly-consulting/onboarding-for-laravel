@@ -10,3 +10,4 @@
 /.editorconfig      export-ignore
 /phpstan.neon       export-ignore
 /pint.json          export-ignore
+/art                export-ignore
