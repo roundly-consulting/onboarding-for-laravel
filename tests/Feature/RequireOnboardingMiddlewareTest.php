@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Step;
+use RoundlyConsulting\Onboarding\Tests\AuthIdentity;
 use RoundlyConsulting\Onboarding\Tests\User;
 
 beforeEach(function () {
@@ -182,10 +183,159 @@ it('selects the flow named by the middleware parameter', function () {
         ->assertRedirect('/setup');
 });
 
-it('handles a guest without error and redirects the null-subject flow', function () {
+it('lets a guest through untouched', function () {
+    $evaluated = false;
+
     Onboarding::register('default', new Flow([
+        Step::make('Setup')->route('onboarding.setup')->completeIf(function () use (&$evaluated): bool {
+            $evaluated = true;
+
+            return false;
+        }),
+    ]));
+
+    $this->get('/dashboard')->assertOk()->assertSee('dashboard');
+    $this->get('/admin')->assertOk()->assertSee('admin');
+
+    expect($evaluated)->toBeFalse();
+});
+
+it('avoids a redirect loop when the step url target carries a query string', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('/billing/setup?from=onboarding')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/dashboard')->assertRedirect('/billing/setup?from=onboarding');
+    $this->actingAs(new User)->get('/billing/setup?from=onboarding')->assertOk()->assertSee('billing');
+    $this->actingAs(new User)->get('/billing/setup')->assertOk()->assertSee('billing');
+});
+
+it('avoids a redirect loop when the step url target carries a fragment', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('/billing/setup#card')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/billing/setup')->assertOk()->assertSee('billing');
+});
+
+it('avoids a redirect loop on an absolute url target with a query string', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url(url('/billing/setup').'/?from=onboarding')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/billing/setup?from=onboarding')->assertOk()->assertSee('billing');
+});
+
+it('still redirects to an absolute url target on another host', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('https://billing.example.com/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/billing/setup')->assertRedirect('https://billing.example.com/billing/setup');
+});
+
+it('treats an explicit default port as the same url, and another port as a different one', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('http://localhost:80/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/billing/setup')->assertOk()->assertSee('billing');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('http://localhost:8080/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/billing/setup')->assertRedirect('http://localhost:8080/billing/setup');
+});
+
+it('avoids a redirect loop when the app is served from a sub-directory', function () {
+    Route::get('/billing/setup', fn () => 'billing')->middleware('onboarding');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Add billing')->url('/billing/setup')->completeIf(fn () => false),
+    ]));
+
+    $this->withServerVariables([
+        'SCRIPT_FILENAME' => '/var/www/app/public/index.php',
+        'SCRIPT_NAME' => '/app/index.php',
+        'PHP_SELF' => '/app/index.php',
+    ]);
+
+    $this->actingAs(new User)->get('http://localhost/app/dashboard')
+        ->assertRedirect('http://localhost/app/billing/setup');
+    $this->actingAs(new User)->get('http://localhost/app/billing/setup')
+        ->assertOk()
+        ->assertSee('billing');
+});
+
+it('honours the flow resolver when no flow key is given', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('Setup')->route('onboarding.setup')->completeIf(fn () => false),
+    ]))->register('admin', new Flow([
+        Step::make('Invite')->completeIf(fn () => true),
+    ]));
+
+    Onboarding::resolveUsing(fn ($subject) => $subject?->name === 'boss' ? 'admin' : 'default');
+
+    $this->actingAs(new User(['name' => 'boss']))->get('/dashboard')->assertOk()->assertSee('dashboard');
+    $this->actingAs(new User(['name' => 'staff']))->get('/dashboard')->assertRedirect('/setup');
+});
+
+it('honours the flow resolver for a subject without the trait', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('Setup')->route('onboarding.setup')->completeIf(fn () => false),
+    ]))->register('admin', new Flow([
+        Step::make('Invite')->completeIf(fn () => true),
+    ]));
+
+    Onboarding::resolveUsing(fn ($subject) => $subject instanceof AuthIdentity ? 'admin' : 'default');
+
+    $this->actingAs(new AuthIdentity)->get('/dashboard')->assertOk()->assertSee('dashboard');
+});
+
+it('keeps the explicit middleware flow key over the resolver', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('Default')->completeIf(fn () => true),
+    ]))->register('admin', new Flow([
         Step::make('Setup')->route('onboarding.setup')->completeIf(fn () => false),
     ]));
 
-    $this->get('/dashboard')->assertRedirect('/setup');
+    Onboarding::resolveUsing(fn () => 'default');
+
+    $this->actingAs(new User)->get('/admin')->assertRedirect('/setup');
+});
+
+it('redirects to a route target with parameters', function () {
+    Route::get('/teams/{team}', fn (string $team) => "team {$team}")
+        ->middleware('onboarding')
+        ->name('teams.show');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Team')
+            ->route('teams.show', fn (?User $user) => ['team' => $user?->team_id])
+            ->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User(['team_id' => 7]))->get('/dashboard')->assertRedirect('/teams/7');
+    $this->actingAs(new User(['team_id' => 7]))->get('/teams/7')->assertOk()->assertSee('team 7');
+});
+
+it('passes through instead of failing when a route target misses its parameters', function () {
+    Route::get('/teams/{team}', fn (string $team) => "team {$team}")->name('teams.show');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Team')->route('teams.show')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/dashboard')->assertOk()->assertSee('dashboard');
 });

@@ -5,46 +5,54 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Onboarding\Http\Middleware;
 
 use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
-use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Redirects an authenticated subject with an unfinished flow to their current
- * step, and passes through when the flow is complete, absent, or has no
- * resolvable redirect target.
+ * step, and passes through for guests and when the flow is complete, absent, or
+ * has no resolvable redirect target. Without a flow key it uses the same flow as
+ * `$user->onboarding()` / `Onboarding::for($user)`, so the resolver applies.
  */
 final class RequireOnboarding
 {
     public function handle(Request $request, Closure $next, ?string $key = null): Response
     {
-        $flow = $this->resolveFlow($request, $key);
+        $subject = $request->user();
+
+        if ($subject === null) {
+            return $next($request);
+        }
+
+        $flow = $this->resolveFlow($subject, $key);
 
         if ($flow === null || $flow->isCompleted()) {
             return $next($request);
         }
 
-        if ($this->requestIsTarget($request, $flow)) {
+        $step = $flow->currentStep();
+
+        if ($step !== null && $this->requestIsAtStep($request, $step)) {
             return $next($request);
         }
 
         return $flow->redirectToCurrentStep() ?? $next($request);
     }
 
-    private function resolveFlow(Request $request, ?string $key): ?Flow
+    private function resolveFlow(Authenticatable $subject, ?string $key): ?Flow
     {
-        $subject = $request->user();
-
-        if (is_object($subject) && method_exists($subject, 'onboarding')) {
+        if (method_exists($subject, 'onboarding')) {
             return $subject->onboarding($key);
         }
 
-        return Onboarding::for($subject, $key ?? OnboardingManager::$default);
+        return Onboarding::for($subject, $key);
     }
 
     /**
@@ -52,23 +60,17 @@ final class RequireOnboarding
      *
      * This mirrors Flow::redirectForStep()'s target precedence exactly (named
      * route, then url, then the free-form action), so every target the middleware
-     * can redirect *to* is also a target it passes through *on*. Checking only
-     * the named route sent a step declaring a `url()` target into an infinite
-     * redirect loop as soon as that URL sat inside the guarded group.
+     * can redirect *to* is also a target it passes through *on*. URL targets are
+     * built the way the redirect builds them (URL::to(), so an app served from a
+     * sub-directory gets its base path) and compared by host and path only — a
+     * query string or fragment on the target never sends the request round again.
      */
-    private function requestIsTarget(Request $request, Flow $flow): bool
+    private function requestIsAtStep(Request $request, Step $step): bool
     {
-        $step = $flow->currentStep();
-
-        if ($step !== null && $step->route !== null && Route::has($step->route)) {
+        if ($step->route !== null && Route::has($step->route)) {
             return $request->route()?->getName() === $step->route;
         }
 
-        return $step !== null && $this->requestIsAtTarget($request, $step);
-    }
-
-    private function requestIsAtTarget(Request $request, Step $step): bool
-    {
         $target = $step->url ?? $step->action;
 
         if ($target === null) {
@@ -79,23 +81,30 @@ final class RequireOnboarding
             return $request->route()?->getName() === $target;
         }
 
-        if (Str::startsWith($target, ['http://', 'https://'])) {
-            return $this->normalize($request->url()) === $this->normalize($target);
-        }
-
-        if (Str::startsWith($target, '/')) {
-            return $this->normalize($request->url()) === $this->normalize($request->getSchemeAndHttpHost().$target);
+        if (Str::startsWith($target, ['http://', 'https://', '/'])) {
+            return $this->normalize($request->url()) === $this->normalize(URL::to($target));
         }
 
         return false;
     }
 
     /**
-     * Compare URLs without a trailing slash; the query string is already absent
-     * from Request::url().
+     * Host (with a non-default port) and path, without scheme, query, fragment or a
+     * trailing slash.
      */
     private function normalize(string $url): string
     {
-        return rtrim($url, '/');
+        $parts = parse_url($url) ?: [];
+
+        $scheme = strtolower($parts['scheme'] ?? '');
+        $port = $parts['port'] ?? null;
+
+        if ($port === (['http' => 80, 'https' => 443][$scheme] ?? null)) {
+            $port = null;
+        }
+
+        return strtolower($parts['host'] ?? '')
+            .($port === null ? '' : ':'.$port)
+            .'/'.trim(rawurldecode($parts['path'] ?? ''), '/');
     }
 }
