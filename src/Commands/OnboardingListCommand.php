@@ -6,7 +6,7 @@ namespace RoundlyConsulting\Onboarding\Commands;
 
 use Illuminate\Console\Command;
 use RoundlyConsulting\Onboarding\Flow;
-use RoundlyConsulting\Onboarding\Registry;
+use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
 
 final class OnboardingListCommand extends Command
@@ -15,7 +15,7 @@ final class OnboardingListCommand extends Command
 
     protected $description = 'List the registered onboarding flows, or inspect one flow\'s steps';
 
-    public function handle(Registry $registry): int
+    public function handle(OnboardingManager $registry): int
     {
         $key = $this->argument('key');
 
@@ -26,7 +26,7 @@ final class OnboardingListCommand extends Command
         return $this->listFlows($registry);
     }
 
-    private function listFlows(Registry $registry): int
+    private function listFlows(OnboardingManager $registry): int
     {
         $flows = $registry->all();
 
@@ -49,7 +49,7 @@ final class OnboardingListCommand extends Command
         return self::SUCCESS;
     }
 
-    private function inspect(Registry $registry, string $key): int
+    private function inspect(OnboardingManager $registry, string $key): int
     {
         $flow = $registry->find($key);
 

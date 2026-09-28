@@ -465,16 +465,16 @@ class Step
         return Lang::getFacadeApplication() !== null;
     }
 
+    /**
+     * The manager's store — `Onboarding::useStore()`, else the container binding — so the
+     * fake's seeded state applies too. Null outside a booted application.
+     */
     private function store(): ?OnboardingStore
     {
         if (App::getFacadeApplication() === null) {
             return null;
         }
 
-        if (! App::bound(OnboardingStore::class)) {
-            return null;
-        }
-
-        return App::make(OnboardingStore::class);
+        return App::make(OnboardingManager::class)->store();
     }
 }

@@ -6,7 +6,6 @@ namespace RoundlyConsulting\Onboarding;
 
 use Illuminate\Routing\Router;
 use RoundlyConsulting\Onboarding\Commands\OnboardingListCommand;
-use RoundlyConsulting\Onboarding\Contracts\OnboardingStore;
 use RoundlyConsulting\Onboarding\Http\Middleware\RequireOnboarding;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
@@ -33,7 +32,7 @@ final class OnboardingServiceProvider extends PackageServiceProvider
     {
         parent::register();
 
-        $this->app->singleton(Registry::class);
+        $this->app->singleton(OnboardingManager::class);
     }
 
     public function boot(): void
@@ -56,7 +55,7 @@ final class OnboardingServiceProvider extends PackageServiceProvider
      */
     private function aboutOnboarding(): array
     {
-        $registry = $this->app->make(Registry::class);
+        $registry = $this->app->make(OnboardingManager::class);
         $flows = $registry->all();
 
         // Count the declared steps, never call count()/percentageCompleted():
@@ -70,8 +69,8 @@ final class OnboardingServiceProvider extends PackageServiceProvider
         return [
             'Flows' => $flows->isEmpty() ? 'NONE' : $flows->count().' registered',
             'Steps' => $steps.' declared',
-            'Default flow' => $registry->has(Registry::$default) ? 'REGISTERED' : 'NONE',
-            'Persistence store' => $this->app->bound(OnboardingStore::class)
+            'Default flow' => $registry->has(OnboardingManager::$default) ? 'REGISTERED' : 'NONE',
+            'Persistence store' => $registry->hasStore()
                 ? 'BOUND'
                 : 'NONE (stateless)',
             'Middleware alias' => 'onboarding',

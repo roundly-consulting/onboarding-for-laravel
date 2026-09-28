@@ -5,38 +5,39 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Onboarding\Traits;
 
 use Illuminate\Database\Eloquent\Model;
-use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
-use RoundlyConsulting\Onboarding\Registry;
+use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
 
 /**
+ * Onboarding reads and writes for a model. Every method goes through the
+ * {@see OnboardingManager}, so `Onboarding::fake()` sees them.
+ *
  * @mixin Model
  */
 trait GetsOnboarded
 {
+    /**
+     * This model's flow: the given key's, else {@see defaultOnboardingKey()}'s, else the
+     * `$default` flow bound to this model.
+     */
     public function onboarding(?string $key = null, ?Flow $default = null): ?Flow
     {
-        if (is_null($key)) {
-            $key = $this->defaultOnboardingKey();
-        }
-
-        $flow = Onboarding::find($key, $default);
-
-        return $flow?->for($this);
+        return app(OnboardingManager::class)->for($this, $key ?? $this->defaultOnboardingKey())
+            ?? $default?->for($this);
     }
 
     /**
-     * Let the registry's resolver pick the right flow for this model.
+     * Let the manager's resolver pick the right flow for this model.
      */
     public function resolvedOnboarding(): ?Flow
     {
-        return Onboarding::resolveFor($this);
+        return app(OnboardingManager::class)->for($this);
     }
 
     public function defaultOnboardingKey(): string
     {
-        return Registry::$default;
+        return OnboardingManager::$default;
     }
 
     public function hasCompletedOnboarding(?string $key = null): bool
@@ -57,5 +58,14 @@ trait GetsOnboarded
     public function nextOnboardingStep(?string $key = null): ?Step
     {
         return $this->onboarding($key)?->currentStep();
+    }
+
+    /**
+     * Dismiss an optional, dismissible step of this model's flow. A no-op without a
+     * store, for an unknown flow or step, and for a step that is not dismissible.
+     */
+    public function dismissOnboardingStep(string $step, ?string $key = null): void
+    {
+        $this->onboarding($key)?->dismiss($step);
     }
 }

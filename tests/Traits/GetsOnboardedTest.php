@@ -25,35 +25,34 @@ it('returns default flow when no onboarding is defined but we pass default flow 
 });
 
 it('returns default flow from registry when no name is specified', function () {
-    Onboarding::register('default', $default = new Flow);
+    Onboarding::register('default', Flow::make('Default'));
 
     $user = new User;
 
     expect($user->onboarding())
         ->toBeInstanceOf(Flow::class)
-        ->toBe($default);
+        ->title->toBe('Default');
 });
 
 it('returns default flow from registry when no name is specified - using different default flow key', function () {
-    Onboarding::register('different_one', $default = new Flow);
+    Onboarding::register('different_one', Flow::make('Different'));
 
     $user = new User(['default_onboarding' => 'different_one']);
 
     expect($user->onboarding())
         ->toBeInstanceOf(Flow::class)
-        ->toBe($default);
+        ->title->toBe('Different');
 });
 
 it('returns specific flow from registry by key', function () {
-    Onboarding::register('default', $default = new Flow)
-        ->register('custom', $custom = new Flow);
+    Onboarding::register('default', Flow::make('Default'))
+        ->register('custom', Flow::make('Custom'));
 
     $user = new User;
 
     expect($user->onboarding('custom'))
         ->toBeInstanceOf(Flow::class)
-        ->toBe($custom)
-        ->not->toBe($default);
+        ->title->toBe('Custom');
 });
 
 it('uses current model as entity to filter steps', function () {
@@ -149,7 +148,7 @@ it('reads a specific flow by key from the model', function () {
 
 it('resolves the right flow through the resolver and binds the model', function () {
     Onboarding::register('default', new Flow)
-        ->register('admin', $admin = new Flow([Step::make('One')]));
+        ->register('admin', $admin = new Flow([Step::make('One')], 'Admin'));
 
     $captured = null;
     Onboarding::resolveUsing(function ($subject) use (&$captured) {
@@ -160,7 +159,10 @@ it('resolves the right flow through the resolver and binds the model', function 
 
     $user = new User;
 
-    expect($user->resolvedOnboarding())->toBe($admin)
-        ->and($admin->for)->toBe($user)
+    $resolved = $user->resolvedOnboarding();
+
+    expect($resolved?->title)->toBe('Admin')
+        ->and($resolved?->for)->toBe($user)
+        ->and($admin->for)->toBeNull()
         ->and($captured)->toBe($user);
 });

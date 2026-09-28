@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Support\Traits\Macroable;
-use RoundlyConsulting\Onboarding\Contracts\OnboardingStore;
 use RoundlyConsulting\Onboarding\DataTransferObjects\FlowData;
 use RoundlyConsulting\Onboarding\DataTransferObjects\SectionData;
 use RoundlyConsulting\Onboarding\DataTransferObjects\StepData;
@@ -46,6 +45,15 @@ class Flow
     protected function setup(): void
     {
         //
+    }
+
+    /**
+     * A copy owns its steps, so binding the copy to a subject never rebinds the
+     * original (the registered definition) or another copy.
+     */
+    public function __clone()
+    {
+        $this->steps = array_map(static fn (Step $step): Step => clone $step, $this->steps);
     }
 
     public static function make(string $title): static
@@ -81,6 +89,11 @@ class Flow
      * The subject reads bind to: the explicit subject when set, otherwise the
      * authenticated user when an auth context is available, otherwise null.
      */
+    public function subject(): Authenticatable|Model|null
+    {
+        return $this->resolveSubject();
+    }
+
     protected function resolveSubject(): Authenticatable|Model|null
     {
         if ($this->for !== null) {
@@ -319,18 +332,14 @@ class Flow
     }
 
     /**
-     * Dismiss a step for the bound subject. A no-op without a bound store.
+     * Dismiss a step for the bound subject, through the manager (so `Onboarding::fake()`
+     * records it). A no-op for a non-dismissible step, without a store, and outside a
+     * booted application.
      */
     public function dismiss(string $key): static
     {
-        $step = $this->step($key);
-
-        if ($step !== null && $step->isDismissible() && App::getFacadeApplication() !== null && App::bound(OnboardingStore::class)) {
-            $store = App::make(OnboardingStore::class);
-
-            if (method_exists($store, 'markDismissed')) {
-                $store->markDismissed($this->resolveSubject(), $key);
-            }
+        if (App::getFacadeApplication() !== null) {
+            App::make(OnboardingManager::class)->dismissStep($this, $key);
         }
 
         return $this;

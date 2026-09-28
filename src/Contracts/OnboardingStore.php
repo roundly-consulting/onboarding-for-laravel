@@ -9,12 +9,13 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * A read-only persistence seam the package consumes when a host binds an
- * implementation. The package ships no implementation, table, or migration and
- * is a complete no-op when nothing is bound — it only ever reads from the store.
+ * The persistence seam the package uses once a host provides one — through
+ * `Onboarding::useStore()` or a container binding. The package ships no implementation,
+ * table, or migration and is stateless without a store.
  *
- * Hosts own the writes: persist completions/dismissals (e.g. by listening to the
- * package's events) and expose them through this contract.
+ * Hosts own the storage: persist completions (e.g. by listening to the package's
+ * `StepCompleted` event) and dismissals (`markDismissed()`, called when a subject
+ * dismisses an optional step), and expose them through the two reads.
  */
 interface OnboardingStore
 {
@@ -27,4 +28,9 @@ interface OnboardingStore
      * When (if ever) did the subject complete this step? null = unknown / never.
      */
     public function completedAt(Authenticatable|Model|null $subject, string $stepKey): ?DateTimeInterface;
+
+    /**
+     * Record that the subject dismissed this (optional, dismissible) step.
+     */
+    public function markDismissed(Authenticatable|Model|null $subject, string $stepKey): void;
 }

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
-use RoundlyConsulting\Onboarding\Registry;
+use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -44,7 +44,7 @@ final class RequireOnboarding
             return $subject->onboarding($key);
         }
 
-        return Onboarding::find($key ?? Registry::$default)?->for($subject);
+        return Onboarding::for($subject, $key ?? OnboardingManager::$default);
     }
 
     /**

@@ -9,8 +9,8 @@ use RoundlyConsulting\Onboarding\Contracts\OnboardingStore;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Http\Middleware\RequireOnboarding;
+use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\OnboardingServiceProvider;
-use RoundlyConsulting\Onboarding\Registry;
 use RoundlyConsulting\Onboarding\Step;
 use RoundlyConsulting\Onboarding\Tests\ArrayOnboardingStore;
 
@@ -22,7 +22,7 @@ function renderAbout(): string
 }
 
 it('registers the registry as a singleton', function () {
-    expect(app(Registry::class))->toBe(app(Registry::class));
+    expect(app(OnboardingManager::class))->toBe(app(OnboardingManager::class));
 });
 
 it('registers the onboarding:list command', function () {
@@ -92,6 +92,16 @@ it('reports a bound persistence store without instantiating it', function () {
 
 it('reports a real bound store', function () {
     app()->instance(OnboardingStore::class, new ArrayOnboardingStore);
+
+    expect(renderAbout())->toContain('BOUND');
+});
+
+it('reports a store configured with useStore without instantiating it', function () {
+    app()->bind(ArrayOnboardingStore::class, function (): never {
+        throw new RuntimeException('about must not resolve the host store');
+    });
+
+    Onboarding::useStore(ArrayOnboardingStore::class);
 
     expect(renderAbout())->toContain('BOUND');
 });

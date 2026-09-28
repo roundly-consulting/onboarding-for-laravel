@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use RoundlyConsulting\Onboarding\Exceptions\OnboardingException;
 use RoundlyConsulting\Onboarding\Flow;
-use RoundlyConsulting\Onboarding\Registry;
+use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
@@ -21,14 +21,14 @@ ArchPresets::strictTypes('RoundlyConsulting\Onboarding');
  *    Step is extended alongside it.
  *  - OnboardingException — the base every onboarding error extends, so a host can catch them
  *    uniformly.
- *  - Registry — the Onboarding facade's accessor, resolved from the container as a singleton.
- *    A host can rebind it to its own subclass, so `final` would close a real (if undocumented)
- *    seam.
+ *  - OnboardingManager — the Onboarding facade's accessor, resolved from the container as a
+ *    singleton. `OnboardingFake extends` it (so injected managers get the fake), and a host can
+ *    rebind it to its own subclass.
  */
 ArchPresets::finalByDefault('RoundlyConsulting\Onboarding', [
     Flow::class,
     Step::class,
-    Registry::class,
+    OnboardingManager::class,
     OnboardingException::class,
 ]);
 
@@ -58,10 +58,17 @@ ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Onboarding');
  * legitimately lands in `require` that this must forgive. If this goes red the graph is wrong —
  * never widen the allow-list to quiet it.
  */
-ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
+ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../../composer.json');
 
 /**
  * Replaces the hand-written ban, which covered dd/dump/ray only — the preset also catches
  * var_dump and print_r.
  */
 ArchPresets::noDebuggingLeftovers();
+
+/**
+ * The `GetsOnboarded` model trait goes through `OnboardingManager`, never around it, so
+ * `Onboarding::fake()` sees every call it makes. Onboarding has no actions, so this guards the
+ * shape: the trait must never reach past the manager.
+ */
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Onboarding');

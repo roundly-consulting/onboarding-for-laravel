@@ -5,13 +5,13 @@ declare(strict_types=1);
 use Illuminate\Support\Collection;
 use RoundlyConsulting\Onboarding\Exceptions\InvalidFlowException;
 use RoundlyConsulting\Onboarding\Flow;
-use RoundlyConsulting\Onboarding\Registry;
+use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
 use RoundlyConsulting\Onboarding\Tests\CustomFlow;
 use RoundlyConsulting\Onboarding\Tests\User;
 
 it('works as registry', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register('default', $firstFlow = new Flow)
         ->register('alternative', $secondFlow = new Flow)
@@ -28,7 +28,7 @@ it('works as registry', function () {
 });
 
 it('registers flows from array of steps', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register('default', [
         Step::make('My Title'),
@@ -41,7 +41,7 @@ it('registers flows from array of steps', function () {
 });
 
 it('registers default flow', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register(CustomFlow::class);
 
@@ -52,7 +52,7 @@ it('registers default flow', function () {
 });
 
 it('registers default flow using array', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register([
         Step::make('My Title'),
@@ -65,9 +65,9 @@ it('registers default flow using array', function () {
 });
 
 it('uses custom default name', function () {
-    Registry::$default = 'my_custom_default';
+    OnboardingManager::$default = 'my_custom_default';
 
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register(CustomFlow::class);
 
@@ -76,23 +76,23 @@ it('uses custom default name', function () {
         ->all()->toHaveCount(1)
         ->find('my_custom_default')->title->toBe('My Custom Flow');
 
-    Registry::$default = 'default';
+    OnboardingManager::$default = 'default';
 });
 
 it('rejects a non-string key when a flow is given', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register(new Flow, new Flow);
 })->throws(InvalidArgumentException::class, 'The flow key must be a string.');
 
 it('throws a typed exception for a non-flow class string', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register('default', Step::class);
 })->throws(InvalidFlowException::class);
 
 it('creates, registers and returns a chainable named flow', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $flow = $registry->flow('admin');
     $flow->add('Invite team')->cta('Invite');
@@ -104,7 +104,7 @@ it('creates, registers and returns a chainable named flow', function () {
 });
 
 it('reports, forgets and flushes registered flows', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     $registry->register('default', new Flow)
         ->register('admin', new Flow);
@@ -123,62 +123,64 @@ it('reports, forgets and flushes registered flows', function () {
 });
 
 it('resolves the flow chosen by the resolver', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
     $registry->register('default', new Flow)
-        ->register('admin', $admin = new Flow);
+        ->register('admin', $admin = Flow::make('Admin'));
 
     $registry->resolveUsing(fn () => 'admin');
 
     $user = new User;
+    $resolved = $registry->resolveFor($user);
 
-    expect($registry->resolveFor($user))->toBe($admin)
-        ->and($admin->for)->toBe($user);
+    expect($resolved?->title)->toBe('Admin')
+        ->and($resolved?->for)->toBe($user)
+        ->and($admin->for)->toBeNull();
 });
 
 it('falls back to the default flow when the resolver returns null', function () {
-    $registry = new Registry;
-    $registry->register('default', $default = new Flow);
+    $registry = new OnboardingManager(app());
+    $registry->register('default', Flow::make('Default'));
 
     $registry->resolveUsing(fn () => null);
 
-    expect($registry->resolveFor(new User))->toBe($default);
+    expect($registry->resolveFor(new User)?->title)->toBe('Default');
 });
 
 it('falls back to the default flow for an unknown resolver key', function () {
-    $registry = new Registry;
-    $registry->register('default', $default = new Flow);
+    $registry = new OnboardingManager(app());
+    $registry->register('default', Flow::make('Default'));
 
     $registry->resolveUsing(fn () => 'missing');
 
-    expect($registry->resolveFor(new User))->toBe($default);
+    expect($registry->resolveFor(new User)?->title)->toBe('Default');
 });
 
 it('returns the default flow without a resolver', function () {
-    $registry = new Registry;
-    $registry->register('default', $default = new Flow);
+    $registry = new OnboardingManager(app());
+    $registry->register('default', Flow::make('Default'));
 
-    expect($registry->resolveFor(new User))->toBe($default);
+    expect($registry->resolveFor(new User)?->title)->toBe('Default');
 });
 
 it('returns null when neither resolver nor default resolves', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
 
     expect($registry->resolveFor(new User))->toBeNull();
 });
 
 it('clears the resolver on flush', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
     $registry->register('default', new Flow)->register('admin', $admin = new Flow);
     $registry->resolveUsing(fn () => 'admin');
 
     $registry->flush();
-    $registry->register('default', $default = new Flow)->register('admin', $admin);
+    $registry->register('default', Flow::make('Default'))->register('admin', $admin);
 
-    expect($registry->resolveFor(new User))->toBe($default);
+    expect($registry->resolveFor(new User)?->title)->toBe('Default');
 });
 
 it('passes the subject to the resolver', function () {
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
     $registry->register('default', new Flow);
 
     $captured = null;
@@ -195,13 +197,13 @@ it('passes the subject to the resolver', function () {
 });
 
 it('registers and calls registry macros', function () {
-    Registry::macro('count', fn (): int => $this->all()->count());
+    OnboardingManager::macro('count', fn (): int => $this->all()->count());
 
-    $registry = new Registry;
+    $registry = new OnboardingManager(app());
     $registry->register('default', new Flow);
 
-    expect(Registry::hasMacro('count'))->toBeTrue()
+    expect(OnboardingManager::hasMacro('count'))->toBeTrue()
         ->and($registry->count())->toBe(1);
 
-    Registry::flushMacros();
+    OnboardingManager::flushMacros();
 });
