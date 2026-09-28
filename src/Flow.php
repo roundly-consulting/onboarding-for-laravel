@@ -399,8 +399,10 @@ class Flow
      *
      * With no argument, dispatches StepCompleted for every currently-complete
      * step and FlowCompleted when the whole flow is complete. With a step key,
-     * announces only that step (if it exists and is complete), still firing
-     * FlowCompleted when that completion finishes the flow.
+     * announces only that step (if it is visible and complete), and fires
+     * FlowCompleted only when that announcement finishes the flow: the step is
+     * required, was announced, and the flow is now complete. An unknown,
+     * incomplete, optional or already-recorded step never fires FlowCompleted.
      *
      * When a host has bound an OnboardingStore, steps already recorded as
      * completed (completedAt() is non-null) are suppressed, giving once-only
@@ -421,11 +423,13 @@ class Flow
             ? $this->steps()->filter->isCompleted()
             : $this->steps()->filter(fn (Step $step): bool => $step->stepKey() === $key && $step->isCompleted());
 
-        $candidates
+        $announced = $candidates
             ->reject(fn (Step $step): bool => $step->completedAt() !== null)
             ->each(fn (Step $step) => Event::dispatch(new StepCompleted($step, $subject)));
 
-        if ($this->isCompleted()) {
+        $finishesFlow = $key === null || $announced->contains(fn (Step $step): bool => $step->isRequired());
+
+        if ($finishesFlow && $this->isCompleted()) {
             Event::dispatch(new FlowCompleted($this, $subject));
         }
 

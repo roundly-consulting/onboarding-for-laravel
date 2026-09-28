@@ -5,8 +5,10 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Onboarding\Events\FlowCompleted;
 use RoundlyConsulting\Onboarding\Events\StepCompleted;
+use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Step;
+use RoundlyConsulting\Onboarding\Tests\ArrayOnboardingStore;
 use RoundlyConsulting\Onboarding\Tests\User;
 
 it('dispatches a completed event for every complete step', function () {
@@ -156,6 +158,56 @@ it('never dispatches events on read paths', function () {
     $flow->percentageCompleted();
     $flow->toArray();
     $flow->toData();
+
+    Event::assertNotDispatched(StepCompleted::class);
+    Event::assertNotDispatched(FlowCompleted::class);
+});
+
+it('does not fire flow completed for an unknown targeted step', function () {
+    Event::fake();
+
+    $flow = new Flow([Step::make('One')->key('one')->completeIf(fn () => true)]);
+    $flow->record('no-such-step');
+
+    Event::assertNotDispatched(StepCompleted::class);
+    Event::assertNotDispatched(FlowCompleted::class);
+});
+
+it('does not fire flow completed for an incomplete targeted step', function () {
+    Event::fake();
+
+    $flow = new Flow([
+        Step::make('One')->key('one')->completeIf(fn () => true),
+        Step::make('Tour')->key('tour')->optional()->completeIf(fn () => false),
+    ]);
+    $flow->record('tour');
+
+    Event::assertNotDispatched(StepCompleted::class);
+    Event::assertNotDispatched(FlowCompleted::class);
+});
+
+it('does not fire flow completed for a targeted optional step', function () {
+    Event::fake();
+
+    $flow = new Flow([
+        Step::make('One')->key('one')->completeIf(fn () => true),
+        Step::make('Tour')->key('tour')->optional()->completeIf(fn () => true),
+    ]);
+    $flow->record('tour');
+
+    Event::assertDispatchedTimes(StepCompleted::class, 1);
+    Event::assertNotDispatched(FlowCompleted::class);
+});
+
+it('does not fire flow completed for a targeted step already recorded', function () {
+    Event::fake();
+
+    $store = new ArrayOnboardingStore;
+    $store->completed['one'] = now();
+    Onboarding::useStore($store);
+
+    $flow = (new Flow([Step::make('One')->key('one')->completeIf(fn () => true)]))->for(new User);
+    $flow->record('one');
 
     Event::assertNotDispatched(StepCompleted::class);
     Event::assertNotDispatched(FlowCompleted::class);
