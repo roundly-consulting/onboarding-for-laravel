@@ -137,10 +137,11 @@ class OnboardingManager
 
     /**
      * Resolve the flow that applies to a subject: the resolver's choice when it
-     * returns a known key, otherwise the default flow. Null only when neither
-     * exists. The flow is a copy bound to the subject.
+     * returns a known key, otherwise the `$fallback` key's flow (the default flow
+     * when none is given). Null only when neither exists. The flow is a copy bound
+     * to the subject.
      */
-    public function resolveFor(Authenticatable|Model|null $subject): ?Flow
+    public function resolveFor(Authenticatable|Model|null $subject, ?string $fallback = null): ?Flow
     {
         if ($this->resolver !== null) {
             $key = ($this->resolver)($subject);
@@ -150,7 +151,7 @@ class OnboardingManager
             }
         }
 
-        return $this->bind($this->find(self::$default), $subject);
+        return $this->bind($this->find($fallback ?? self::$default), $subject);
     }
 
     /**

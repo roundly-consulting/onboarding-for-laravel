@@ -18,17 +18,25 @@ use RoundlyConsulting\Onboarding\Step;
 trait GetsOnboarded
 {
     /**
-     * This model's flow: the given key's, else {@see defaultOnboardingKey()}'s, else the
-     * `$default` flow bound to this model.
+     * This model's flow: the given key's; without a key, the resolver's choice
+     * ({@see OnboardingManager::resolveUsing()}), else {@see defaultOnboardingKey()}'s.
+     * Falls back to the `$default` flow bound to this model. Every no-key reader below
+     * (and the `onboarding` middleware) goes through here.
      */
     public function onboarding(?string $key = null, ?Flow $default = null): ?Flow
     {
-        return app(OnboardingManager::class)->for($this, $key ?? $this->defaultOnboardingKey())
-            ?? $default?->for($this);
+        $manager = app(OnboardingManager::class);
+
+        $flow = $key === null
+            ? $manager->resolveFor($this, $this->defaultOnboardingKey())
+            : $manager->for($this, $key);
+
+        return $flow ?? $default?->for($this);
     }
 
     /**
-     * Let the manager's resolver pick the right flow for this model.
+     * The manager's choice for this model, exactly as `Onboarding::for($model)`: the
+     * resolver's flow, else the default flow (ignores {@see defaultOnboardingKey()}).
      */
     public function resolvedOnboarding(): ?Flow
     {

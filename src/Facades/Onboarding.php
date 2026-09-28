@@ -25,7 +25,7 @@ use RoundlyConsulting\Onboarding\Testing\OnboardingFake;
  * @method static OnboardingManager flush()
  * @method static Collection<string, Flow> all()
  * @method static OnboardingManager resolveUsing(Closure $resolver)
- * @method static Flow|null resolveFor(Authenticatable|Model|null $subject)
+ * @method static Flow|null resolveFor(Authenticatable|Model|null $subject, ?string $fallback = null)
  * @method static OnboardingManager useStore(OnboardingStore|string $store)
  * @method static OnboardingStore|null store()
  * @method static bool hasStore()

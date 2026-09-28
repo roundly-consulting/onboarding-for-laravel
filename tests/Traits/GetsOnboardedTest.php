@@ -166,3 +166,39 @@ it('resolves the right flow through the resolver and binds the model', function 
         ->and($admin->for)->toBeNull()
         ->and($captured)->toBe($user);
 });
+
+it('consults the resolver in every no-key reader', function () {
+    Onboarding::register('default', new Flow([Step::make('Profile')->completeIf(fn () => false)], 'Default'))
+        ->register('admin', new Flow([Step::make('Invite')->completeIf(fn () => true)], 'Admin'));
+
+    Onboarding::resolveUsing(fn ($subject) => $subject?->name === 'boss' ? 'admin' : null);
+
+    $boss = new User(['name' => 'boss']);
+
+    expect($boss->onboarding()?->title)->toBe('Admin')
+        ->and($boss->onboarding()?->for)->toBe($boss)
+        ->and($boss->hasCompletedOnboarding())->toBeTrue()
+        ->and($boss->isOnboarding())->toBeFalse()
+        ->and($boss->onboardingProgress())->toBe(100.0)
+        ->and($boss->nextOnboardingStep())->toBeNull();
+});
+
+it('falls back to the model default key when the resolver has no answer', function () {
+    Onboarding::register('default', Flow::make('Default'))
+        ->register('different_one', Flow::make('Different'));
+
+    Onboarding::resolveUsing(fn () => 'no-such-flow');
+
+    expect((new User(['default_onboarding' => 'different_one']))->onboarding()?->title)->toBe('Different')
+        ->and((new User)->onboarding()?->title)->toBe('Default');
+});
+
+it('prefers an explicit key over the resolver', function () {
+    Onboarding::register('default', Flow::make('Default'))
+        ->register('admin', Flow::make('Admin'));
+
+    Onboarding::resolveUsing(fn () => 'admin');
+
+    expect((new User)->onboarding('default')?->title)->toBe('Default')
+        ->and((new User)->hasCompletedOnboarding('default'))->toBeTrue();
+});

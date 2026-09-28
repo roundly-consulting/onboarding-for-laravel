@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Collection;
 use RoundlyConsulting\Onboarding\Exceptions\InvalidFlowException;
+use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\OnboardingManager;
 use RoundlyConsulting\Onboarding\Step;
@@ -160,6 +161,19 @@ it('returns the default flow without a resolver', function () {
     $registry->register('default', Flow::make('Default'));
 
     expect($registry->resolveFor(new User)?->title)->toBe('Default');
+});
+
+it('falls back to the given key when the resolver has no answer, through the facade', function () {
+    Onboarding::register('default', Flow::make('Default'))
+        ->register('team', Flow::make('Team'))
+        ->register('admin', Flow::make('Admin'));
+
+    Onboarding::resolveUsing(fn ($subject) => $subject?->name === 'boss' ? 'admin' : null);
+
+    expect(Onboarding::resolveFor(new User, 'team')?->title)->toBe('Team')
+        ->and(Onboarding::resolveFor(new User(['name' => 'boss']), 'team')?->title)->toBe('Admin')
+        ->and(Onboarding::resolveFor(new User, 'missing'))->toBeNull()
+        ->and(Onboarding::resolveFor(new User)?->title)->toBe('Default');
 });
 
 it('returns null when neither resolver nor default resolves', function () {
