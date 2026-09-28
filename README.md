@@ -181,7 +181,9 @@ The trait resolves the model's flow from the registry and binds the model to it,
 step's `completeIf` / `excludeIf` closure receives that model.
 
 By default the model uses the `default` flow key. Override `defaultOnboardingKey()` to choose
-a different one — for example, from a column on the model:
+a different one — for example, from a column on the model. When a
+[resolver](#choosing-the-flow-per-subject-resolver) is registered, its choice comes first and
+`defaultOnboardingKey()` is the fallback for a `null` or unknown answer:
 
 ```php
 public function defaultOnboardingKey(): string
@@ -195,7 +197,7 @@ public function defaultOnboardingKey(): string
 ```php
 $user = User::first();
 
-$flow = $user->onboarding();                 // the model's default flow, bound to $user
+$flow = $user->onboarding();                 // the resolver's flow, else defaultOnboardingKey()'s, bound to $user
 $flow = $user->onboarding('admin');          // a specific flow by key
 $flow = $user->onboarding('missing', $fallback = new Flow()); // fallback when the key is unknown
 
@@ -249,10 +251,17 @@ resolver returns `null` or an unknown key:
 ```php
 Onboarding::resolveUsing(fn ($subject) => $subject?->isAdmin() ? 'admin' : 'default');
 
-Onboarding::for($user);          // the resolved Flow, bound to $user
-Onboarding::resolveFor($user);   // the same
-$user->resolvedOnboarding();     // the same, from the GetsOnboarded trait
+Onboarding::for($user);                 // the resolved Flow, bound to $user
+Onboarding::resolveFor($user);          // the same
+Onboarding::resolveFor($user, 'team');  // the same, falling back to "team" instead of "default"
+$user->resolvedOnboarding();            // the same as Onboarding::for($user), from the GetsOnboarded trait
 ```
+
+Every place that reads a subject's flow **without a key** asks the resolver first:
+`$user->onboarding()`, the model readers (`hasCompletedOnboarding()`, `isOnboarding()`,
+`onboardingProgress()`, `nextOnboardingStep()`, `dismissOnboardingStep()`) and the `onboarding`
+middleware. On a model, a `null` or unknown answer falls back to its `defaultOnboardingKey()`.
+An explicit key (`$user->onboarding('admin')`, `onboarding:admin`) always wins.
 
 `flush()` clears the resolver along with the registered flows.
 
@@ -260,7 +269,9 @@ $user->resolvedOnboarding();     // the same, from the GetsOnboarded trait
 
 Gate routes behind onboarding completion with the `onboarding` middleware. An authenticated
 subject whose flow is unfinished is redirected to their current step; a complete (or absent)
-flow passes through.
+flow passes through. **Guests always pass through** — the middleware only onboards a logged-in
+user, so put `auth` in front of it wherever guests must be turned away. Without a key it reads
+the same flow as `$user->onboarding()`, so a registered resolver applies.
 
 ```php
 Route::middleware(['auth', 'onboarding'])->group(function () {
@@ -268,23 +279,28 @@ Route::middleware(['auth', 'onboarding'])->group(function () {
 });
 
 // pick a specific flow key
-Route::middleware('onboarding:admin')->get('/admin', AdminController::class);
+Route::middleware(['auth', 'onboarding:admin'])->get('/admin', AdminController::class);
 ```
 
 For the middleware to redirect, the current step must declare a target. Set a named route with
-`route()` or an absolute URL/path with `url()`:
+`route()` — with its parameters, as an array or a closure that receives the bound subject — or
+an absolute URL/path with `url()`:
 
 ```php
 Step::make('Complete profile')->route('profile.edit');
-Step::make('Add billing')->url('/billing/setup');
+Step::make('Join a team')->route('teams.show', fn (?User $user) => ['team' => $user?->current_team_id]);
+Step::make('Add billing')->url('/billing/setup?from=onboarding');
 ```
 
 The free-form `action()` field is also resolved as a last fallback target (named route, then
 URL); beyond that it is whatever hint your frontend uses. When the current
 step has no resolvable target, or the request is **already on that target** — whether it was
 declared as a named route, an absolute URL, or a path — the middleware passes through, so the
-step's own screen can safely sit inside the guarded group without looping. You can also build
-the redirect yourself:
+step's own screen can safely sit inside the guarded group without looping. URL targets are
+compared by host and path, so a query string or `#fragment` on the target and an app served
+from a sub-directory never loop. A named route whose required parameters are missing is
+reported (`report()`) and treated as "no target": the request passes through instead of
+failing. You can also build the redirect yourself:
 
 ```php
 $user->onboarding()?->redirectToCurrentStep();   // ?RedirectResponse
@@ -295,15 +311,18 @@ $user->onboarding()?->redirectToCurrentStep();   // ?RedirectResponse
 Group steps for larger journeys and read per-section progress. Steps with no group fall into a
 reserved `general` section:
 
-```php
-Onboarding::flow('default')
-    ->add('Upload photo')->group('profile')->completeWhenFilled('avatar_path')
-    ->add('Add card')->group('billing')->completeWhenFilled('card_last4');
+`add()` returns the new `Step`, so add each step in its own statement:
 
-$flow->sections();                  // Collection<int, SectionData>
-$flow->groups();                    // alias of sections()
-$flow->section('billing')?->percentage;   // float
-$flow->section('billing')?->isCompleted;  // bool — required steps in the group complete
+```php
+$flow = Onboarding::flow('default');
+$flow->add('Upload photo')->group('profile')->completeWhenFilled('avatar_path');
+$flow->add('Add card')->group('billing')->completeWhenFilled('card_last4');
+
+$flow = Onboarding::for($user);
+$flow?->sections();                  // Collection<int, SectionData>
+$flow?->groups();                    // alias of sections()
+$flow?->section('billing')?->percentage;   // float
+$flow?->section('billing')?->isCompleted;  // bool — required steps in the group complete
 ```
 
 `SectionData` is a `final readonly` DTO (`key`, `title`, `percentage`, `isCompleted`, `steps`)
@@ -364,7 +383,7 @@ resolves and persists them.
 | `for($subject, ?string $key = null)` | `?Flow` | a copy of the subject's flow, bound to it |
 | `find(string $key, ?Flow $default = null)` | `?Flow` | the registered definition |
 | `has()` / `all()` / `forget()` / `flush()` | — | inspect and edit the registry |
-| `resolveUsing(Closure)` / `resolveFor($subject)` | `OnboardingManager` / `?Flow` | pick the flow per subject |
+| `resolveUsing(Closure)` / `resolveFor($subject, ?string $fallback = null)` | `OnboardingManager` / `?Flow` | pick the flow per subject |
 | `useStore(OnboardingStore\|string $store)` | `OnboardingManager` | configure persistence (see below) |
 | `store()` / `hasStore()` | `?OnboardingStore` / `bool` | the store in use |
 
@@ -429,12 +448,14 @@ With a store configured:
   `Onboarding::for($user)?->dismiss('add-bio')` or `$user->dismissOnboardingStep('add-bio')`
   (a no-op without a store, for an unknown step and for a non-dismissible one).
 - `record()` / `record($key)` suppress re-announcing any step whose `completedAt()` is non-null,
-  giving once-only `StepCompleted` events. `FlowCompleted` still fires when the flow is complete.
+  giving once-only `StepCompleted` events. `record()` still fires `FlowCompleted` whenever the
+  flow is complete; `record($key)` fires it only when it announced that required step.
 
 ### Model readers
 
 The `GetsOnboarded` trait adds null-safe one-liners so you don't have to chain through
-`onboarding()?->...` yourself. Each accepts an optional flow key:
+`onboarding()?->...` yourself. Each accepts an optional flow key; without one it reads the same
+flow as `$user->onboarding()` (the resolver's choice, else `defaultOnboardingKey()`):
 
 ```php
 $user->hasCompletedOnboarding();   // bool — false when no flow is registered
@@ -516,13 +537,13 @@ Step::make('Verify email')
     ->excludeIf(fn (?User $user) => $user?->is_guest);
 ```
 
-Available step helpers: `title()`, `cta()`, `action()`, `route()`, `url()`, `meta()`, `key()`,
+Available step helpers: `title()`, `cta()`, `action()`, `route($name, $parameters = [])`, `url()`, `meta()`, `key()`,
 `order()`, `group()`, `optional()`, `required()`, `translatable()`, `dismissible()`,
 `completeIf()` / `completeWhen()`, `excludeIf()` / `excludeWhen()`, the declarative
 `completeWhen*` / `excludeWhen*` helpers (below), plus the predicates `isCompleted()`,
 `isNotCompleted()`, `isExcluded()`, `isNotExcluded()`, `isOptional()`, `isRequired()`,
-`isDismissible()`, `isDismissed()`, the `stepKey()`, `groupName()`, `resolvedTitle()`,
-`resolvedCta()` readers, and `toArray()` / `toData()`.
+`isDismissible()`, `isDismissed()`, the `stepKey()`, `groupName()`, `routeParameters()`,
+`resolvedTitle()`, `resolvedCta()` readers, and `toArray()` / `toData()`.
 
 ### Declarative completion and exclusion
 
@@ -555,17 +576,24 @@ complete step and `FlowCompleted` when the whole flow is complete. **Reads never
 only `record()` does.
 
 ```php
+use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Onboarding\Events\FlowCompleted;
 use RoundlyConsulting\Onboarding\Events\StepCompleted;
 
-$user->onboarding()?->record();
+Event::listen(StepCompleted::class, function (StepCompleted $e): void {
+    // $e->step, $e->for
+});
+Event::listen(FlowCompleted::class, function (FlowCompleted $e): void {
+    // $e->flow, $e->for
+});
 
-Event::listen(StepCompleted::class, fn (StepCompleted $e) => /* $e->step, $e->for */);
-Event::listen(FlowCompleted::class, fn (FlowCompleted $e) => /* $e->flow, $e->for */);
+$user->onboarding()?->record();
 ```
 
-Pass a step key to announce just one step (it still fires `FlowCompleted` when that completion
-finishes the flow):
+Pass a step key to announce just one step. It fires `FlowCompleted` only when that completion
+finishes the flow — the step is visible, complete, required, was announced (not already
+recorded in a store), and the flow is now complete. An unknown, incomplete or optional step
+never fires it:
 
 ```php
 $user->onboarding()?->record('upload-photo');

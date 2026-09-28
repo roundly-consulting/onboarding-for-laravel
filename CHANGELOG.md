@@ -17,7 +17,10 @@ Initial public release.
 - A `GetsOnboarded` model trait for the next step, completion percentage and resume position;
   flows fall back to the authenticated user.
 - Several flows per app, with a resolver that picks the right flow for each subject.
-- An `onboarding` route middleware that redirects unfinished subjects to their current step.
+- An `onboarding` route middleware that redirects unfinished, logged-in subjects to their
+  current step (guests pass through), honours the resolver, and never loops on its own target.
+- Named-route step targets with route parameters (`route($name, $parameters)`, an array or a
+  closure over the subject).
 - Optional steps, explicit ordering, stable step keys and sections (step groups) with
   per-section progress.
 - Localizable titles and calls to action through Laravel's translator.
