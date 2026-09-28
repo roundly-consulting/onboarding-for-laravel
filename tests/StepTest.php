@@ -339,3 +339,16 @@ it('is never dismissed and has no completedAt without a store', function () {
     expect(Step::make('Bio')->dismissible()->isDismissed())->toBeFalse()
         ->and(Step::make('Bio')->completedAt())->toBeNull();
 });
+
+it('stores route parameters and resolves a closure against the bound subject', function () {
+    $static = Step::make('Team')->route('teams.show', ['team' => 3]);
+    $dynamic = Step::make('Team')
+        ->route('teams.show', fn (?User $user) => ['team' => $user?->team_id])
+        ->for(new User(['team_id' => 4]));
+
+    expect($static->route)->toBe('teams.show')
+        ->and($static->routeParameters())->toBe(['team' => 3])
+        ->and($dynamic->routeParameters())->toBe(['team' => 4])
+        ->and(Step::make('Plain')->route('home')->routeParameters())->toBe([])
+        ->and(Step::make('Reset')->route('teams.show', ['team' => 3])->route('home')->routeParameters())->toBe([]);
+});

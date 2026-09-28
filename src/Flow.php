@@ -7,6 +7,9 @@ namespace RoundlyConsulting\Onboarding;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Routing\Exceptions\UrlGenerationException;
+use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Auth;
@@ -366,8 +369,10 @@ class Flow
             return null;
         }
 
-        if ($step->route !== null && $this->routeExists($step->route)) {
-            return Redirect::route($step->route);
+        $route = $step->route === null ? null : $this->namedRoute($step->route);
+
+        if ($route !== null) {
+            return $this->redirectToRoute($route, $step->routeParameters());
         }
 
         $target = $step->url ?? $step->action;
@@ -376,8 +381,10 @@ class Flow
             return null;
         }
 
-        if ($this->routeExists($target)) {
-            return Redirect::route($target);
+        $route = $this->namedRoute($target);
+
+        if ($route !== null) {
+            return $this->redirectToRoute($route);
         }
 
         if (Str::startsWith($target, ['http://', 'https://', '/'])) {
@@ -387,11 +394,31 @@ class Flow
         return null;
     }
 
-    private function routeExists(string $name): bool
+    /**
+     * A route the step's parameters cannot fill (a missing required parameter) is
+     * reported and treated as "no resolvable target", so one misconfigured step never
+     * turns every guarded request into a 500.
+     *
+     * @param  array<array-key, mixed>  $parameters
+     */
+    private function redirectToRoute(RoutingRoute $route, array $parameters = []): ?RedirectResponse
     {
-        // routeExists() is only reached from redirectForStep(), which has
+        try {
+            $url = App::make(UrlGenerator::class)->toRoute($route, $parameters, true);
+        } catch (UrlGenerationException $exception) {
+            report($exception);
+
+            return null;
+        }
+
+        return Redirect::to($url);
+    }
+
+    private function namedRoute(string $name): ?RoutingRoute
+    {
+        // namedRoute() is only reached from redirectForStep(), which has
         // already confirmed the (shared) facade application is bootstrapped.
-        return Route::has($name);
+        return Route::getRoutes()->getByName($name);
     }
 
     /**

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Routing\Exceptions\UrlGenerationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Route;
 use RoundlyConsulting\Onboarding\DataTransferObjects\SectionData;
@@ -553,4 +555,42 @@ it('returns null from the redirect builder when routing is not bootstrapped', fu
     } finally {
         Redirect::setFacadeApplication($app);
     }
+});
+
+it('redirects to a route target with its parameters', function () {
+    Route::get('/teams/{team}', fn () => 'ok')->name('teams.show');
+    Route::getRoutes()->refreshNameLookups();
+
+    $flow = new Flow([Step::make('Team')->route('teams.show', ['team' => 5])->completeIf(fn () => false)]);
+
+    expect($flow->redirectToCurrentStep()?->getTargetUrl())->toEndWith('/teams/5');
+});
+
+it('resolves route parameters from the bound subject', function () {
+    Route::get('/teams/{team}', fn () => 'ok')->name('teams.show');
+    Route::getRoutes()->refreshNameLookups();
+
+    $flow = (new Flow([
+        Step::make('Team')
+            ->route('teams.show', fn (?User $user) => ['team' => $user?->team_id])
+            ->completeIf(fn () => false),
+    ]))->for(new User(['team_id' => 9]));
+
+    expect($flow->redirectToCurrentStep()?->getTargetUrl())->toEndWith('/teams/9');
+});
+
+it('reports and returns null when a route target cannot be generated', function () {
+    Exceptions::fake();
+
+    Route::get('/teams/{team}', fn () => 'ok')->name('teams.show');
+    Route::get('/members/{member}', fn () => 'ok')->name('members.show');
+    Route::getRoutes()->refreshNameLookups();
+
+    $viaRoute = new Flow([Step::make('Team')->route('teams.show')->completeIf(fn () => false)]);
+    $viaAction = new Flow([Step::make('Member')->action('members.show')->completeIf(fn () => false)]);
+
+    expect($viaRoute->redirectToCurrentStep())->toBeNull()
+        ->and($viaAction->redirectToCurrentStep())->toBeNull();
+
+    Exceptions::assertReported(UrlGenerationException::class);
 });

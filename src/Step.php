@@ -24,6 +24,7 @@ class Step
      * @param  Closure|null  $complete  receives the bound subject (or null) and returns whether the step is complete
      * @param  Closure|null  $exclude  receives the bound subject (or null) and returns whether the step is excluded
      * @param  array<string, mixed>  $meta
+     * @param  array<array-key, mixed>|Closure  $routeParameters  the named route's parameters, or a closure that receives the bound subject (or null) and returns them
      */
     public function __construct(
         public ?string $title = null,
@@ -41,12 +42,14 @@ class Step
         public ?string $url = null,
         public ?bool $translatable = null,
         public bool $dismissible = false,
+        public array|Closure $routeParameters = [],
     ) {}
 
     /**
      * @param  Closure|null  $complete  receives the bound subject (or null) and returns whether the step is complete
      * @param  Closure|null  $exclude  receives the bound subject (or null) and returns whether the step is excluded
      * @param  array<string, mixed>  $meta
+     * @param  array<array-key, mixed>|Closure  $routeParameters  the named route's parameters, or a closure that receives the bound subject (or null) and returns them
      */
     public static function make(
         ?string $title = null,
@@ -64,8 +67,9 @@ class Step
         ?string $url = null,
         ?bool $translatable = null,
         bool $dismissible = false,
+        array|Closure $routeParameters = [],
     ): static {
-        return new static($title, $cta, $action, $complete, $exclude, $meta, $for, $key, $optional, $order, $group, $route, $url, $translatable, $dismissible);
+        return new static($title, $cta, $action, $complete, $exclude, $meta, $for, $key, $optional, $order, $group, $route, $url, $translatable, $dismissible, $routeParameters);
     }
 
     public function for(Authenticatable|Model|null $subject): static
@@ -97,13 +101,31 @@ class Step
     }
 
     /**
-     * Set the named route the middleware redirects to for this step.
+     * Set the named route the middleware redirects to for this step, with its parameters:
+     * an array, or a closure that receives the bound subject (or null) and returns them.
+     *
+     * @param  array<array-key, mixed>|Closure  $parameters
      */
-    public function route(?string $route): static
+    public function route(?string $route, array|Closure $parameters = []): static
     {
         $this->route = $route;
+        $this->routeParameters = $parameters;
 
         return $this;
+    }
+
+    /**
+     * The named route's parameters, resolved against the bound subject.
+     *
+     * @return array<array-key, mixed>
+     */
+    public function routeParameters(): array
+    {
+        if ($this->routeParameters instanceof Closure) {
+            return (array) call_user_func($this->routeParameters, $this->for);
+        }
+
+        return $this->routeParameters;
     }
 
     /**
