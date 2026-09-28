@@ -58,8 +58,8 @@ redirect targets.
 
 ## Core concepts
 
-- **`Registry`** — the central store of named flows. Resolved as a singleton and reachable
-  through the `Onboarding` facade.
+- **`OnboardingManager`** — the central store of named flows, the resolver and the persistence
+  store. Resolved as a singleton and reachable through the `Onboarding` facade.
 - **`Flow`** — a named, ordered set of steps. Reports overall progress and the next step.
 - **`Step`** — a single onboarding task. Its completion and exclusion are decided by optional
   closures (or by declarative helpers) that receive the subject the flow is bound to.
@@ -217,20 +217,22 @@ $flow?->toData();              // a typed RoundlyConsulting\Onboarding\DataTrans
 ### Binding the subject
 
 A flow evaluates its steps against a **subject** — an Eloquent `Model` or any
-`Illuminate\Contracts\Auth\Authenticatable`. Bind one explicitly with `for()`:
+`Illuminate\Contracts\Auth\Authenticatable`. Get a subject's flow with `Onboarding::for()`:
 
 ```php
-Onboarding::find('default')?->for($user)->percentageCompleted();
+Onboarding::for($user)?->percentageCompleted();            // the resolver's flow, else "default"
+Onboarding::for($user, 'admin')?->percentageCompleted();   // a specific flow by key
 ```
 
-When you don't, the flow uses the **authenticated user** (`auth()->user()`) automatically:
+Each call returns **its own copy** of the registered flow, bound to that subject — flows read for
+two users never share state, and the registered definition stays unbound.
+
+`Onboarding::find('default')` returns the registered definition itself (for adding steps at
+boot). Read from it without binding and it uses the **authenticated user** (`auth()->user()`):
 
 ```php
 // binds auth()->user() implicitly
 Onboarding::find('default')?->percentageCompleted();
-
-// an explicit subject always wins
-Onboarding::find('default')?->for($otherUser)->percentageCompleted();
 ```
 
 > **Subject resolution.** Reading a flow without calling `for()` resolves to the logged-in
@@ -241,13 +243,14 @@ Onboarding::find('default')?->for($otherUser)->percentageCompleted();
 ### Choosing the flow per subject (resolver)
 
 Register a resolver once to map a subject to the flow key it should use, instead of branching
-by hand. `resolveFor()` falls back to the default flow when the resolver returns `null` or an
-unknown key:
+by hand. `for()` without a key (and `resolveFor()`) falls back to the default flow when the
+resolver returns `null` or an unknown key:
 
 ```php
 Onboarding::resolveUsing(fn ($subject) => $subject?->isAdmin() ? 'admin' : 'default');
 
-Onboarding::resolveFor($user);   // the resolved Flow, bound to $user
+Onboarding::for($user);          // the resolved Flow, bound to $user
+Onboarding::resolveFor($user);   // the same
 $user->resolvedOnboarding();     // the same, from the GetsOnboarded trait
 ```
 
@@ -330,59 +333,101 @@ resolved copy.
 
 ### Extending with macros
 
-`Flow`, `Step`, and `Registry` are `Macroable`, so you can add fluent helpers at boot without
-subclassing:
+`Flow`, `Step`, and `OnboardingManager` are `Macroable`, so you can add fluent helpers at boot
+without subclassing:
 
 ```php
 Step::macro('completeWhenVerified', fn () => $this->completeWhenTrue('email_verified_at'));
 Flow::macro('progressLabel', fn () => round($this->percentageCompleted()).'% done');
 ```
 
+### Without the facade
+
+The facade is a thin layer over `RoundlyConsulting\Onboarding\OnboardingManager`, a container
+singleton. Inject it for the same API — `Onboarding::fake()` swaps the injected instance too:
+
+```php
+use RoundlyConsulting\Onboarding\OnboardingManager;
+
+public function __construct(private OnboardingManager $onboarding) {}
+
+$this->onboarding->for($user)?->currentStep();
+$this->onboarding->for($user)?->dismiss('add-bio');
+```
+
+Onboarding has no action classes: flows and steps are declarative, and the manager registers,
+resolves and persists them.
+
+| Facade method | Returns | Purpose |
+|---|---|---|
+| `register($key, $flow = null)` / `flow(string $key)` | `OnboardingManager` / `Flow` | register a flow (steps array, `Flow`, or class) / start one fluently |
+| `for($subject, ?string $key = null)` | `?Flow` | a copy of the subject's flow, bound to it |
+| `find(string $key, ?Flow $default = null)` | `?Flow` | the registered definition |
+| `has()` / `all()` / `forget()` / `flush()` | — | inspect and edit the registry |
+| `resolveUsing(Closure)` / `resolveFor($subject)` | `OnboardingManager` / `?Flow` | pick the flow per subject |
+| `useStore(OnboardingStore\|string $store)` | `OnboardingManager` | configure persistence (see below) |
+| `store()` / `hasStore()` | `?OnboardingStore` / `bool` | the store in use |
+
 ### Testing
 
-`Onboarding::fake()` captures the package's events and returns an `OnboardingFake` with
-first-class assertions (it leaves the real registry in place and fakes only the dispatcher,
-like `Bus::fake()`):
+`Onboarding::fake()` swaps the manager — behind the facade and in the container, so injected
+managers and the `GetsOnboarded` trait use it too — for an `OnboardingFake`. It keeps every
+registered flow and resolver, captures the package's events (like `Bus::fake()`), records
+dismissals, and replaces the store with an in-memory one you can **seed**:
 
 ```php
 $fake = Onboarding::fake();
 
+$fake->seedCompleted($user, 'verify-email');   // completedAt() reports it; record() skips it
+$fake->seedDismissed($user, 'add-bio');        // the step drops out of $user's flow
+
 $user->onboarding()->record('photo');
+$user->dismissOnboardingStep('tour');
 
 $fake->assertStepCompleted('photo')
      ->assertFlowCompleted()           // optionally pass a flow title to filter
-     ->assertStepNotCompleted('bio');
+     ->assertStepNotCompleted('bio')
+     ->assertDismissed('tour', $user)  // subject optional
+     ->assertNotDismissed('add-bio');  // seeding is not a dismissal
 
-Onboarding::fake()->assertNothingRecorded();
+Onboarding::fake()->assertNothingRecorded()->assertNothingDismissed();
 ```
 
 `assertStepCompleted()` accepts an optional callback receiving the event for extra assertions
-(e.g. the bound subject).
+(e.g. the bound subject). Every dismissal is recorded — through `Onboarding::for($user)->dismiss()`,
+a flow's `dismiss()`, or `$user->dismissOnboardingStep()`. `useStore()` is ignored under the
+fake.
 
 ### Optional persistence seam
 
-The package is stateless by default, but it will **consume** a host-provided
-`RoundlyConsulting\Onboarding\Contracts\OnboardingStore` when one is bound — enabling
-dismissible optional steps and once-only events. The package ships **no table, model, or
-migration** and is a complete no-op when nothing is bound; it only ever *reads* the store. The
-host owns all writes (typically by listening to `StepCompleted` and persisting).
+The package is stateless by default, but it will use a host-provided
+`RoundlyConsulting\Onboarding\Contracts\OnboardingStore` — enabling dismissible optional steps
+and once-only events. The package ships **no table, model, or migration** and is a complete
+no-op without a store. The host owns the storage: completions (typically by listening to
+`StepCompleted` and persisting) and dismissals (`markDismissed()`).
 
 ```php
 interface OnboardingStore
 {
     public function isDismissed(Authenticatable|Model|null $subject, string $stepKey): bool;
     public function completedAt(Authenticatable|Model|null $subject, string $stepKey): ?DateTimeInterface;
+    public function markDismissed(Authenticatable|Model|null $subject, string $stepKey): void;
 }
 
-// host application
-app()->bind(OnboardingStore::class, MyEloquentStore::class);   // your own table
+// host application, e.g. AppServiceProvider::boot()
+Onboarding::useStore(MyEloquentStore::class);   // resolved through the container on first use
+Onboarding::useStore(new MyEloquentStore);      // or an instance
 ```
 
-With a store bound:
+`useStore()` throws `InvalidStoreException` for a class that doesn't implement the contract.
+Without it, a store bound in the container (`app()->bind(OnboardingStore::class, …)`) is used.
+
+With a store configured:
 
 - A `dismissible()` **optional** step the subject has dismissed drops out of `steps()` (and out
   of `percentageCompleted()`). Required steps are never dismissed away. Dismiss with
-  `$flow->dismiss('add-bio')` (a no-op without a store; your store persists it).
+  `Onboarding::for($user)?->dismiss('add-bio')` or `$user->dismissOnboardingStep('add-bio')`
+  (a no-op without a store, for an unknown step and for a non-dismissible one).
 - `record()` / `record($key)` suppress re-announcing any step whose `completedAt()` is non-null,
   giving once-only `StepCompleted` events. `FlowCompleted` still fires when the flow is complete.
 
@@ -396,6 +441,7 @@ $user->hasCompletedOnboarding();   // bool — false when no flow is registered
 $user->isOnboarding();             // bool — in progress
 $user->onboardingProgress();       // float — 0.0 when no flow is registered
 $user->nextOnboardingStep();       // ?Step
+$user->dismissOnboardingStep('add-bio'); // dismiss an optional, dismissible step (needs a store)
 $user->hasCompletedOnboarding('admin'); // target a specific flow key
 ```
 

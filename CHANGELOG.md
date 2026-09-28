@@ -23,5 +23,24 @@ Initial public release.
 - Localizable titles and calls to action through Laravel's translator.
 - JSON-ready `toArray()` output for your frontend.
 - `StepCompleted` and `FlowCompleted` analytics events announced on demand with `record()`.
-- An optional persistence seam (`OnboardingStore`) for dismissible steps and once-only events.
-- `php artisan onboarding:list` and `Onboarding::fake()` with assertions for your tests.
+- An optional persistence seam (`OnboardingStore`: `isDismissed()`, `completedAt()`,
+  `markDismissed()`) for dismissible steps and once-only events, configured with
+  `Onboarding::useStore()` (or a container binding); `store()` / `hasStore()` report it.
+- `Onboarding::for($user, ?$key)` returns the subject's flow, and `$user->dismissOnboardingStep()`
+  dismisses an optional step; the injectable `OnboardingManager` serves the same API.
+- `php artisan onboarding:list`, and `Onboarding::fake()` for your tests: it keeps your flows,
+  seeds state (`seedCompleted()`, `seedDismissed()`), records dismissals and asserts them
+  (`assertDismissed()`, `assertNotDismissed()`, `assertNothingDismissed()`) alongside the event
+  assertions.
+
+### Changed
+
+- The facade root is `OnboardingManager` (was `Registry`); `OnboardingFake` extends it, so
+  injected managers and the `GetsOnboarded` trait see the fake.
+- `OnboardingStore` implementations must add `markDismissed()` (previously called only when
+  present).
+
+### Fixed
+
+- A flow read for one subject is no longer rebound when another subject reads the same flow:
+  `for()`, `resolveFor()` and the trait return a copy per subject.
