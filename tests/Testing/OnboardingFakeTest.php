@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\ExpectationFailedException;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
@@ -220,4 +221,24 @@ it('keeps in-memory state per subject', function () {
         ->and($store->isDismissed(null, 'a'))->toBeFalse()
         ->and($store->completedAt($unsaved, 'd'))->not->toBeNull()
         ->and($store->completedAt(new User, 'd'))->toBeNull();
+});
+
+it('regression: faking keeps an existing full Event::fake()', function () {
+    Event::fake();
+    event('some.event.before');
+
+    $fake = Onboarding::fake();
+    event('some.event.after');
+    (new Flow([Step::make('Photo')->key('photo')->completeIf(fn () => true)]))->record();
+
+    Event::assertDispatched('some.event.before');
+    Event::assertDispatched('some.event.after');
+    $fake->assertStepCompleted('photo');
+});
+
+it('regression: faking again keeps the onboarding events already captured', function () {
+    Onboarding::fake();
+    (new Flow([Step::make('Photo')->key('photo')->completeIf(fn () => true)]))->record();
+
+    Onboarding::fake()->assertStepCompleted('photo');
 });

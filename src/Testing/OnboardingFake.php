@@ -22,7 +22,9 @@ use RoundlyConsulting\Onboarding\OnboardingManager;
  * swaps the store for an {@see InMemoryOnboardingStore} you can seed
  * ({@see seedCompleted()}, {@see seedDismissed()}), records every dismissal — through
  * the facade, a flow, or `$user->dismissOnboardingStep()` — and captures the package's
- * events, mirroring Laravel's `Bus::fake()`.
+ * events, mirroring Laravel's `Bus::fake()`. When events are already faked it keeps that
+ * fake, so an earlier partial `Event::fake([...])` must include `StepCompleted` and
+ * `FlowCompleted` for the event assertions to see them.
  */
 final class OnboardingFake extends OnboardingManager
 {
@@ -41,7 +43,11 @@ final class OnboardingFake extends OnboardingManager
 
         $this->store = $this->memory = new InMemoryOnboardingStore;
 
-        Event::fake([StepCompleted::class, FlowCompleted::class]);
+        // Re-faking would wrap the real dispatcher again: a test's full Event::fake() would
+        // stop faking (and lose what it recorded). A partial fake must list both events.
+        if (! Event::isFake()) {
+            Event::fake([StepCompleted::class, FlowCompleted::class]);
+        }
     }
 
     /**

@@ -16,6 +16,10 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
   `BadMethodCallException`, a public accessor is read for its value instead of always counting as
   true, and a protected method on a non-Eloquent subject no longer raises an `Error`: all three
   read the attribute.
+- `Onboarding::fake()` no longer replaces an existing `Event::fake()`. Before, it re-faked only the
+  two onboarding events, so every other event was dispatched for real again and the events
+  recorded so far were lost. An earlier partial `Event::fake([...])` must now include
+  `StepCompleted` and `FlowCompleted` for the fake's event assertions.
 
 ## 1.0.0 - 2026-10-03
 
