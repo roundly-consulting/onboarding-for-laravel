@@ -17,11 +17,17 @@ it('returns null when no onboarding is defined in registry', function () {
 it('returns default flow when no onboarding is defined but we pass default flow to method', function () {
     $user = new User;
 
-    $default = new Flow;
+    $default = new Flow(title: 'Fallback');
 
-    expect($user->onboarding(default: $default))
+    $flow = $user->onboarding(default: $default);
+
+    // A copy bound to the user, never the caller's instance (see the shared-default regression).
+    expect($flow)
         ->toBeInstanceOf(Flow::class)
-        ->toBe($default);
+        ->not->toBe($default)
+        ->and($flow?->title)->toBe('Fallback')
+        ->and($flow?->for)->toBe($user)
+        ->and($default->for)->toBeNull();
 });
 
 it('returns default flow from registry when no name is specified', function () {
@@ -201,4 +207,19 @@ it('prefers an explicit key over the resolver', function () {
 
     expect((new User)->onboarding('default')?->title)->toBe('Default')
         ->and((new User)->hasCompletedOnboarding('default'))->toBeTrue();
+});
+
+it('regression: a shared default flow is copied per subject, not rebound', function () {
+    $default = new Flow([Step::make('Verify')->completeWhenTrue('verified')]);
+
+    $a = (new User(['verified' => true]))->onboarding('missing', $default);
+
+    expect($a?->isCompleted())->toBeTrue();
+
+    $b = (new User(['verified' => false]))->onboarding('missing', $default);
+
+    expect($a)->not->toBe($b)
+        ->and($a?->isCompleted())->toBeTrue()
+        ->and($b?->isCompleted())->toBeFalse()
+        ->and($default->for)->toBeNull();
 });

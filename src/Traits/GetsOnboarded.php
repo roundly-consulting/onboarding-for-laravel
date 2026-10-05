@@ -20,8 +20,8 @@ trait GetsOnboarded
     /**
      * This model's flow: the given key's; without a key, the resolver's choice
      * ({@see OnboardingManager::resolveUsing()}), else {@see defaultOnboardingKey()}'s.
-     * Falls back to the `$default` flow bound to this model. Every no-key reader below
-     * (and the `onboarding` middleware) goes through here.
+     * Falls back to a copy of the `$default` flow bound to this model. Every no-key
+     * reader below (and the `onboarding` middleware) goes through here.
      */
     public function onboarding(?string $key = null, ?Flow $default = null): ?Flow
     {
@@ -31,7 +31,9 @@ trait GetsOnboarded
             ? $manager->resolveFor($this, $this->defaultOnboardingKey())
             : $manager->for($this, $key);
 
-        return $flow ?? $default?->for($this);
+        // A copy, like the manager's: binding the caller's flow in place would let two
+        // models sharing one `$default` overwrite each other's subject.
+        return $flow ?? ($default === null ? null : (clone $default)->for($this));
     }
 
     /**

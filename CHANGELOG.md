@@ -26,6 +26,10 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
 - The fake's `assertDismissed()` / `assertNotDismissed()` now match a non-Eloquent subject by class
   and auth identifier, like the fake's store. A fresh instance of the same user (e.g. a
   `GenericUser` with the same id) no longer fails the assertion.
+- `$model->onboarding($key, $default)` now returns a copy of the `$default` flow bound to the
+  model, instead of binding the caller's instance in place. Two models sharing one `$default` no
+  longer overwrite each other's subject. The returned flow is no longer the same object as
+  `$default`.
 
 ## 1.0.0 - 2026-10-03
 
