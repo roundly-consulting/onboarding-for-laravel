@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Facades\Route;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
@@ -363,4 +365,20 @@ it('regression: an incomplete optional step never traps the subject ahead of the
     $this->actingAs(new User)->get('/required-guarded')->assertOk()->assertSee('required');
     $this->actingAs(new User)->get('/dashboard')->assertRedirect('/required-guarded');
     $this->actingAs(new User)->get('/optional')->assertRedirect('/required-guarded');
+});
+
+it('regression: ignores an unrelated onboarding() method on a subject without the trait', function () {
+    Onboarding::register('default', new Flow([
+        Step::make('Setup')->route('onboarding.setup')->completeIf(fn () => false),
+    ]));
+
+    $subject = new class extends Authenticatable
+    {
+        public function onboarding(): HasOne
+        {
+            return $this->hasOne(User::class);
+        }
+    };
+
+    $this->actingAs($subject)->get('/dashboard')->assertRedirect('/setup');
 });

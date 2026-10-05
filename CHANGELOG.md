@@ -35,6 +35,9 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
   records the logged-in user's state. Only a flow that was never bound with `for()` uses
   `Auth::user()`. Behaviour change: `$flow->for(null)` no longer means "unbind and use the
   authenticated user".
+- The `onboarding` middleware calls `$user->onboarding()` only when the user model uses the
+  `GetsOnboarded` trait, and otherwise resolves the flow through `Onboarding::for()`. An unrelated
+  `onboarding()` method (e.g. a relation) no longer causes a `TypeError` on every guarded route.
 
 ## 1.0.0 - 2026-10-03
 

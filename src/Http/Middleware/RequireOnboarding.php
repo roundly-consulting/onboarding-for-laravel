@@ -13,6 +13,7 @@ use Illuminate\Support\Str;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Step;
+use RoundlyConsulting\Onboarding\Traits\GetsOnboarded;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -50,7 +51,9 @@ final class RequireOnboarding
 
     private function resolveFlow(Authenticatable $subject, ?string $key): ?Flow
     {
-        if (method_exists($subject, 'onboarding')) {
+        // Only the trait's onboarding() is ours: a same-named method (e.g. a relation)
+        // on a subject without it goes through the manager like any other subject.
+        if (method_exists($subject, 'onboarding') && in_array(GetsOnboarded::class, class_uses_recursive($subject), true)) {
             return $subject->onboarding($key);
         }
 
