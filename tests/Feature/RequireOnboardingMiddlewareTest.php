@@ -339,3 +339,28 @@ it('passes through instead of failing when a route target misses its parameters'
 
     $this->actingAs(new User)->get('/dashboard')->assertOk()->assertSee('dashboard');
 });
+
+it('regression: enforces the first incomplete required step past an optional step without a target', function () {
+    Route::get('/kyc', fn () => 'kyc')->name('required.step');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Tour')->optional()->completeIf(fn () => false),
+        Step::make('KYC')->route('required.step')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/dashboard')->assertRedirect('/kyc');
+});
+
+it('regression: an incomplete optional step never traps the subject ahead of the required one', function () {
+    Route::get('/optional', fn () => 'optional')->middleware('onboarding');
+    Route::get('/required-guarded', fn () => 'required')->middleware('onboarding')->name('required.step');
+
+    Onboarding::register('default', new Flow([
+        Step::make('Tour')->optional()->url('/optional')->completeIf(fn () => false),
+        Step::make('KYC')->route('required.step')->completeIf(fn () => false),
+    ]));
+
+    $this->actingAs(new User)->get('/required-guarded')->assertOk()->assertSee('required');
+    $this->actingAs(new User)->get('/dashboard')->assertRedirect('/required-guarded');
+    $this->actingAs(new User)->get('/optional')->assertRedirect('/required-guarded');
+});

@@ -16,9 +16,10 @@ use RoundlyConsulting\Onboarding\Step;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Redirects an authenticated subject with an unfinished flow to their current
- * step, and passes through for guests and when the flow is complete, absent, or
- * has no resolvable redirect target. Without a flow key it uses the same flow as
+ * Redirects an authenticated subject with an unfinished flow to its first
+ * incomplete required step (optional steps never block, so they are never
+ * enforced), and passes through for guests and when the flow is complete,
+ * absent, or that step has no resolvable redirect target. Without a flow key it uses the same flow as
  * `$user->onboarding()` / `Onboarding::for($user)`, so the resolver applies.
  */
 final class RequireOnboarding
@@ -37,13 +38,14 @@ final class RequireOnboarding
             return $next($request);
         }
 
-        $step = $flow->currentStep();
+        $step = $flow->requiredSteps()->first(fn (Step $step): bool => $step->isNotCompleted());
 
-        if ($step !== null && $this->requestIsAtStep($request, $step)) {
+        if ($step === null || $this->requestIsAtStep($request, $step)) {
             return $next($request);
         }
 
-        return $flow->redirectToCurrentStep() ?? $next($request);
+        // A copy narrowed to that one step reuses the flow's redirect resolution.
+        return (clone $flow)->of([$step])->redirectToCurrentStep() ?? $next($request);
     }
 
     private function resolveFlow(Authenticatable $subject, ?string $key): ?Flow
