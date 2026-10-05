@@ -11,6 +11,11 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
 - The `onboarding` middleware now enforces the first incomplete *required* step. An incomplete
   optional step before it no longer lets the request through (when it has no target) or traps
   the subject on the optional step (when it has one).
+- `completeWhenTrue()` / `excludeWhenTrue()` now call a same-named method only when it is public
+  and not an Eloquent `Attribute` accessor. A protected accessor no longer throws
+  `BadMethodCallException`, a public accessor is read for its value instead of always counting as
+  true, and a protected method on a non-Eloquent subject no longer raises an `Error`: all three
+  read the attribute.
 
 ## 1.0.0 - 2026-10-03
 

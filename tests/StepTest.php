@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Lang;
@@ -228,6 +229,52 @@ it('prefers a no-arg method over an attribute for completeWhenTrue', function ()
 it('falls back to an attribute when a method needs arguments', function () {
     // greet() requires an argument, so data_get('greet') is used (null → false).
     expect(Step::make('Greet')->completeWhenTrue('greet')->for(new User)->isCompleted())->toBeFalse();
+});
+
+it('regression: completeWhenTrue reads a protected Attribute accessor instead of calling it', function () {
+    $user = new class(['verified_at' => '2026-10-05']) extends Model
+    {
+        protected $guarded = [];
+
+        protected function verified(): Attribute
+        {
+            return Attribute::get(fn (mixed $value, array $attributes): bool => ($attributes['verified_at'] ?? null) !== null);
+        }
+    };
+
+    expect(Step::make('Verify')->completeWhenTrue('verified')->for($user)->isCompleted())->toBeTrue()
+        ->and(Step::make('Verify')->excludeWhenTrue('verified')->for($user)->isExcluded())->toBeTrue();
+});
+
+it('regression: completeWhenTrue reads a public Attribute accessor value, not the Attribute object', function () {
+    $user = new class(['verified_at' => null]) extends Model
+    {
+        protected $guarded = [];
+
+        public function verified(): Attribute
+        {
+            return Attribute::get(fn (mixed $value, array $attributes): bool => ($attributes['verified_at'] ?? null) !== null);
+        }
+    };
+
+    expect(Step::make('Verify')->completeWhenTrue('verified')->for($user)->isCompleted())->toBeFalse();
+
+    $user->verified_at = '2026-10-05';
+
+    expect(Step::make('Verify')->completeWhenTrue('verified')->for($user)->isCompleted())->toBeTrue();
+});
+
+it('regression: completeWhenTrue falls back to the attribute for a protected method on a non-Eloquent subject', function () {
+    $identity = new class extends AuthIdentity
+    {
+        protected function verified(): bool
+        {
+            return false;
+        }
+    };
+    $identity->verified = true;
+
+    expect(Step::make('Verify')->completeWhenTrue('verified')->for($identity)->isCompleted())->toBeTrue();
 });
 
 it('completes when a relation resolves to a non-empty value', function () {

@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Str;
 use Illuminate\Support\Traits\Macroable;
+use ReflectionMethod;
 use RoundlyConsulting\Onboarding\Contracts\OnboardingStore;
 use RoundlyConsulting\Onboarding\DataTransferObjects\StepData;
 
@@ -422,14 +423,21 @@ class Step
     private function resolveSubjectValue(mixed $subject, string $name, string $mode): mixed
     {
         if ($mode === 'true' && is_object($subject) && method_exists($subject, $name)) {
-            if ((new \ReflectionMethod($subject, $name))->getNumberOfRequiredParameters() === 0) {
-                return $subject->{$name}();
-            }
+            $method = new ReflectionMethod($subject, $name);
 
             // A method exists but needs arguments: it cannot be resolved as a
             // truthiness check, so treat it as "no value" rather than risk
             // re-invoking it through data_get's accessor fallback.
-            return null;
+            if ($method->getNumberOfRequiredParameters() > 0) {
+                return null;
+            }
+
+            // Only a public, non-accessor method is called. A protected method is not
+            // callable from here, and an `Attribute` accessor returns an always-truthy
+            // object: both are read as the attribute instead.
+            if ($method->isPublic() && ! ($subject instanceof Model && $subject->hasAttributeMutator($name))) {
+                return $subject->{$name}();
+            }
         }
 
         return data_get($subject, $name);
