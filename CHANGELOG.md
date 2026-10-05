@@ -6,12 +6,17 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
 
 ## Unreleased
 
+## 1.0.1 - 2026-10-05
+
 ### Changed
 
 - Documentation: the `StepCompleted` / `FlowCompleted` docblocks state that listeners must be
   synchronous (the events carry live `Step` / `Flow` objects with closures, so a queued listener
   cannot serialize them) and idempotent. `record()`'s docblock no longer promises once-only
   events: the store check is not atomic, so concurrent calls can both announce a step.
+- Documentation: the README hero image uses an absolute URL, so it renders on Packagist and other
+  sites.
+- Maintenance: `composer.json` `homepage` and `support.docs` link to the package documentation.
 
 ### Fixed
 
