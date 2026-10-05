@@ -35,6 +35,12 @@ class Flow
     public const UNGROUPED_SECTION = 'general';
 
     /**
+     * Whether for() was ever called. An explicitly bound null subject stays null
+     * instead of falling back to the authenticated user. Copies keep it.
+     */
+    private bool $bound = false;
+
+    /**
      * @param  array<int, Step>  $steps
      */
     public function __construct(
@@ -84,13 +90,14 @@ class Flow
     public function for(Authenticatable|Model|null $subject): static
     {
         $this->for = $subject;
+        $this->bound = true;
 
         return $this;
     }
 
     /**
-     * The subject reads bind to: the explicit subject when set, otherwise the
-     * authenticated user when an auth context is available, otherwise null.
+     * The subject reads bind to: the subject given to for() (even null), otherwise
+     * the authenticated user when an auth context is available, otherwise null.
      */
     public function subject(): Authenticatable|Model|null
     {
@@ -99,7 +106,7 @@ class Flow
 
     protected function resolveSubject(): Authenticatable|Model|null
     {
-        if ($this->for !== null) {
+        if ($this->for !== null || $this->bound) {
             return $this->for;
         }
 

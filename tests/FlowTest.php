@@ -7,10 +7,13 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Routing\Exceptions\UrlGenerationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Route;
 use RoundlyConsulting\Onboarding\DataTransferObjects\SectionData;
+use RoundlyConsulting\Onboarding\Events\StepCompleted;
+use RoundlyConsulting\Onboarding\Facades\Onboarding;
 use RoundlyConsulting\Onboarding\Flow;
 use RoundlyConsulting\Onboarding\Step;
 use RoundlyConsulting\Onboarding\Tests\CustomFlow;
@@ -394,6 +397,27 @@ it('binds the authenticated user implicitly when no subject is set', function ()
     $this->actingAs($user);
 
     expect($flow->isCompleted())->toBeTrue();
+});
+
+it('regression: an explicitly bound null subject does not fall back to the authenticated user', function () {
+    Event::fake();
+    $this->actingAs(new User(['verified' => true]));
+
+    Onboarding::register('default', new Flow([
+        Step::make('Verify')->key('verify')->completeWhenTrue('verified'),
+        Step::make('Welcome')->key('welcome')->completeIf(fn () => true),
+    ]));
+
+    $flow = Onboarding::for(null);
+
+    expect($flow?->subject())->toBeNull()
+        ->and($flow?->step('verify')?->isCompleted())->toBeFalse()
+        ->and($flow?->isCompleted())->toBeFalse()
+        ->and((new Flow)->for(null)->subject())->toBeNull();
+
+    $flow?->record();
+
+    Event::assertDispatched(StepCompleted::class, fn (StepCompleted $event): bool => $event->step->stepKey() === 'welcome' && $event->for === null);
 });
 
 it('lets an explicit subject win over the authenticated user', function () {

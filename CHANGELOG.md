@@ -30,6 +30,11 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
   model, instead of binding the caller's instance in place. Two models sharing one `$default` no
   longer overwrite each other's subject. The returned flow is no longer the same object as
   `$default`.
+- A flow bound to a `null` subject (`Onboarding::for(null)`, or `Onboarding::for(User::find($id))`
+  for a missing user) no longer falls back to the authenticated user, so it no longer reports or
+  records the logged-in user's state. Only a flow that was never bound with `for()` uses
+  `Auth::user()`. Behaviour change: `$flow->for(null)` no longer means "unbind and use the
+  authenticated user".
 
 ## 1.0.0 - 2026-10-03
 
