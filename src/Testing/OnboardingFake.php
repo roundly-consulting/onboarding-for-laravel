@@ -196,6 +196,17 @@ final class OnboardingFake extends OnboardingManager
             return $recorded->is($expected);
         }
 
+        // The same rule as the in-memory store: an authenticatable is its class plus a
+        // scalar auth identifier, so a fresh instance of the same user matches.
+        if (! $expected instanceof Model && $recorded instanceof Authenticatable && $recorded::class === $expected::class) {
+            $recordedId = $recorded->getAuthIdentifier();
+            $expectedId = $expected->getAuthIdentifier();
+
+            if (is_scalar($recordedId) && is_scalar($expectedId)) {
+                return (string) $recordedId === (string) $expectedId;
+            }
+        }
+
         return $recorded === $expected;
     }
 }

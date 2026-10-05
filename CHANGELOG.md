@@ -23,6 +23,9 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
 - Dismissing a required step that is marked `dismissible()` is now a no-op, as documented. Before,
   the store's `markDismissed()` was called (and `Onboarding::fake()` recorded the dismissal),
   although a required step is never hidden.
+- The fake's `assertDismissed()` / `assertNotDismissed()` now match a non-Eloquent subject by class
+  and auth identifier, like the fake's store. A fresh instance of the same user (e.g. a
+  `GenericUser` with the same id) no longer fails the assertion.
 
 ## 1.0.0 - 2026-10-03
 

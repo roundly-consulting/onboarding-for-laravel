@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Auth\GenericUser;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\ExpectationFailedException;
 use RoundlyConsulting\Onboarding\Facades\Onboarding;
@@ -253,4 +254,17 @@ it('regression: a required step flagged dismissible is not recorded as dismissed
     $fake->assertNotDismissed('name')->assertNothingDismissed();
 
     expect($fake->store()->isDismissed($user, 'name'))->toBeFalse();
+});
+
+it('regression: dismissal asserts match a non-Eloquent subject by class and auth identifier', function () {
+    $fake = Onboarding::fake();
+    Onboarding::register('default', [Step::make('Bio')->key('bio')->optional()->dismissible()->completeIf(fn () => false)]);
+
+    Onboarding::for(new GenericUser(['id' => 5]))?->dismiss('bio');
+
+    $fake->assertDismissed('bio', new GenericUser(['id' => 5]))
+        ->assertNotDismissed('bio', new GenericUser(['id' => 6]));
+
+    expect(fn () => $fake->assertNotDismissed('bio', new GenericUser(['id' => 5])))
+        ->toThrow(ExpectationFailedException::class);
 });
