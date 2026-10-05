@@ -70,7 +70,7 @@ trait GetsOnboarded
 
     /**
      * Dismiss an optional, dismissible step of this model's flow. A no-op without a
-     * store, for an unknown flow or step, and for a step that is not dismissible.
+     * store, for an unknown flow or step, and for a required or non-dismissible step.
      */
     public function dismissOnboardingStep(string $step, ?string $key = null): void
     {

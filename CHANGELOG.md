@@ -20,6 +20,9 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
   two onboarding events, so every other event was dispatched for real again and the events
   recorded so far were lost. An earlier partial `Event::fake([...])` must now include
   `StepCompleted` and `FlowCompleted` for the fake's event assertions.
+- Dismissing a required step that is marked `dismissible()` is now a no-op, as documented. Before,
+  the store's `markDismissed()` was called (and `Onboarding::fake()` recorded the dismissal),
+  although a required step is never hidden.
 
 ## 1.0.0 - 2026-10-03
 

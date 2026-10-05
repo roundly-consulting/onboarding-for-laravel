@@ -210,7 +210,7 @@ class OnboardingManager
     /**
      * Dismiss a step of a flow for the flow's subject — the path every dismissal takes
      * ({@see Flow::dismiss()}, `$user->dismissOnboardingStep()`), so the fake sees them all.
-     * A no-op for an unknown or non-dismissible step, and without a store.
+     * A no-op for an unknown, required or non-dismissible step, and without a store.
      *
      * @internal
      */
@@ -218,7 +218,8 @@ class OnboardingManager
     {
         $target = $flow->step($step);
 
-        if ($target === null || ! $target->isDismissible()) {
+        // Only an optional step can be dismissed away (Flow hides nothing else).
+        if ($target === null || ! $target->isOptional() || ! $target->isDismissible()) {
             return;
         }
 

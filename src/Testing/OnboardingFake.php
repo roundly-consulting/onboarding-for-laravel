@@ -88,7 +88,8 @@ final class OnboardingFake extends OnboardingManager
     {
         $target = $flow->step($step);
 
-        if ($target === null || ! $target->isDismissible()) {
+        // Only an optional step can be dismissed away (Flow hides nothing else).
+        if ($target === null || ! $target->isOptional() || ! $target->isDismissible()) {
             return;
         }
 

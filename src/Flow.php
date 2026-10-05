@@ -336,8 +336,8 @@ class Flow
 
     /**
      * Dismiss a step for the bound subject, through the manager (so `Onboarding::fake()`
-     * records it). A no-op for a non-dismissible step, without a store, and outside a
-     * booted application.
+     * records it). A no-op for a required or non-dismissible step, without a store, and
+     * outside a booted application.
      */
     public function dismiss(string $key): static
     {

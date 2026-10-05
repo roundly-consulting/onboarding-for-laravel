@@ -242,3 +242,15 @@ it('regression: faking again keeps the onboarding events already captured', func
 
     Onboarding::fake()->assertStepCompleted('photo');
 });
+
+it('regression: a required step flagged dismissible is not recorded as dismissed', function () {
+    $fake = Onboarding::fake();
+    Onboarding::register('default', [Step::make('Name')->key('name')->dismissible()->completeIf(fn () => false)]);
+
+    $user = new User;
+    $user->dismissOnboardingStep('name');
+
+    $fake->assertNotDismissed('name')->assertNothingDismissed();
+
+    expect($fake->store()->isDismissed($user, 'name'))->toBeFalse();
+});

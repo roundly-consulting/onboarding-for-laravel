@@ -95,3 +95,17 @@ it('returns dismissable state and completedAt through the bound store', function
     expect($step->isDismissed())->toBeTrue()
         ->and($step->completedAt())->toBe($at);
 });
+
+it('regression: dismiss() writes nothing for a required step flagged dismissible', function () {
+    $store = new ArrayOnboardingStore;
+    app()->instance(OnboardingStore::class, $store);
+
+    $flow = new Flow([
+        Step::make('Name')->key('name')->dismissible()->completeIf(fn () => false),
+    ]);
+
+    $flow->dismiss('name');
+
+    expect($store->dismissed)->toBe([])
+        ->and($flow->hasStep('name'))->toBeTrue();
+});
