@@ -438,9 +438,11 @@ class Flow
      * required, was announced, and the flow is now complete. An unknown,
      * incomplete, optional or already-recorded step never fires FlowCompleted.
      *
-     * When a host has bound an OnboardingStore, steps already recorded as
-     * completed (completedAt() is non-null) are suppressed, giving once-only
-     * semantics — the host owns persistence via the event listener.
+     * When a host has bound an OnboardingStore, steps the store already reports as
+     * completed (completedAt() is non-null) are suppressed — the host owns
+     * persistence via the event listener. This is not an atomic claim: concurrent
+     * record() calls that both run before the listener persists can both announce a
+     * step, so listeners must be idempotent (e.g. a unique index or insertOrIgnore).
      *
      * Reads never dispatch — only this explicit call does, and only when
      * Laravel's event dispatcher is available.

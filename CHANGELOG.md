@@ -6,6 +6,13 @@ All notable changes to `onboarding-for-laravel` are documented in this file. The
 
 ## Unreleased
 
+### Changed
+
+- Documentation: the `StepCompleted` / `FlowCompleted` docblocks state that listeners must be
+  synchronous (the events carry live `Step` / `Flow` objects with closures, so a queued listener
+  cannot serialize them) and idempotent. `record()`'s docblock no longer promises once-only
+  events: the store check is not atomic, so concurrent calls can both announce a step.
+
 ### Fixed
 
 - The `onboarding` middleware now enforces the first incomplete *required* step. An incomplete
