@@ -26,7 +26,7 @@ users on their current step with one middleware.
 
 ## Installation
 
-Requires PHP 8.4, Laravel 12 or 13.
+Requires PHP 8.4 and Laravel 13.
 
 ```bash
 composer require roundly-consulting/onboarding-for-laravel
